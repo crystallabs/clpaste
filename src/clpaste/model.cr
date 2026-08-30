@@ -26,6 +26,13 @@ module Clpaste
     property max_failures : Int32 = 0
     property text_size : Int64 = 0
     property attachments : Array(AttachmentInfo) = [] of AttachmentInfo
+    # Deletion removes every trace (record, metadata, audit log), unlike
+    # expiry. nil hours = never. The timer starts at expiry, or — with
+    # delete_on_retrieval — restarts on every successful counted retrieval
+    # (0 = delete the moment it is retrieved). delete_at is the armed deadline.
+    property delete_after_hours : Float64? = nil
+    property? delete_on_retrieval : Bool = false
+    property delete_at : Time? = nil
     # residual
     property expired_at : Time? = nil
     property expiry_reason : String? = nil
@@ -93,9 +100,19 @@ module Clpaste
       r.views = views
       r.team_meta = team_meta?
       r.log_ips = log_ips?
+      r.delete_after_hours = delete_after_hours
+      r.delete_on_retrieval = delete_on_retrieval?
+      r.delete_at = delete_at
       r.expired_at = now
       r.expiry_reason = reason
       r
+    end
+
+    # Human description of the deletion rule, nil when the paste is never deleted.
+    def delete_desc : String?
+      h = delete_after_hours || return
+      anchor = delete_on_retrieval? ? "last retrieval" : "expiry"
+      h == 0 ? "immediately after #{anchor}" : "#{h.to_s.sub(/\.0$/, "")} h after #{anchor}"
     end
 
     # Short protection summary for lists.

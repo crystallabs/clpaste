@@ -7,12 +7,33 @@
 </div>
 {% if text %}
 <div class="card mb-3">
-  <div class="card-header d-flex justify-content-between">
+  <div class="card-header d-flex justify-content-between align-items-center">
     <span>Text</span>
-    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('t').textContent)">Copy</button>
+    <span>
+      <button class="btn btn-sm btn-outline-secondary" type="button" id="b64toggle">View base64-encoded</button>
+      <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('t').textContent)">Copy</button>
+    </span>
   </div>
   <pre class="card-body paste-text mb-0" id="t">{{ text }}</pre>
 </div>
+<script>
+  (function(){
+    var pre = document.getElementById('t'), btn = document.getElementById('b64toggle');
+    var raw = pre.textContent, enc = null;
+    btn.addEventListener('click', function(){
+      if (pre.textContent === raw) {
+        if (enc === null) {
+          var bytes = new TextEncoder().encode(raw), s = '';
+          for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+          enc = btoa(s);
+        }
+        pre.textContent = enc; btn.textContent = 'View as-is';
+      } else {
+        pre.textContent = raw; btn.textContent = 'View base64-encoded';
+      }
+    });
+  })();
+</script>
 {% endif %}
 {% if files | length > 0 %}
 <div class="card mb-3">

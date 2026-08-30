@@ -88,7 +88,7 @@
           </div>
         </div>
         <div class="col-6">
-          <label class="form-label form-text-sm mb-0" for="ttl_hours">Expiry, hours <span class="text-secondary">(empty = never)</span></label>
+          <label class="form-label form-text-sm mb-0" for="ttl_hours">Expiry (h, empty = never)</label>
           <div class="input-group input-group-sm">
             <input class="form-control" name="ttl_hours" id="ttl_hours" type="number" min="0" step="0.5" value="{{ f.ttl_hours }}">
             <button class="btn btn-outline-secondary px-1" type="button" data-set="ttl_hours" data-value="12">12h</button>
@@ -96,6 +96,25 @@
             <button class="btn btn-outline-secondary px-1" type="button" data-set="ttl_hours" data-value="72">3d</button>
             <button class="btn btn-outline-secondary px-1" type="button" data-set="ttl_hours" data-value="240">10d</button>
             <button class="btn btn-outline-secondary px-1" type="button" title="Never expires" data-set="ttl_hours" data-value="">&#10005;</button>
+          </div>
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <div class="form-check form-text-sm mb-0 mt-4">
+            <input class="form-check-input" type="checkbox" name="delete_on_retrieval" id="delete_on_retrieval" {% if f.delete_on_retrieval %}checked{% endif %}>
+            <label class="form-check-label" for="delete_on_retrieval" title="Checked: every successful retrieval restarts the deletion timer (0 h deletes the paste the moment it is retrieved). Unchecked: the timer starts when the paste expires.">Delete after last retrieval</label>
+          </div>
+        </div>
+        <div class="col-6">
+          <label class="form-label form-text-sm mb-0" for="delete_after_hours">Delete after (h, empty = never)</label>
+          <div class="input-group input-group-sm">
+            <input class="form-control" name="delete_after_hours" id="delete_after_hours" type="number" min="0" step="0.5" value="{{ f.delete_after_hours }}">
+            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="12">12h</button>
+            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="24">1d</button>
+            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="72">3d</button>
+            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="240">10d</button>
+            <button class="btn btn-outline-secondary px-1" type="button" title="Never deleted" data-set="delete_after_hours" data-value="">&#10005;</button>
           </div>
         </div>
       </div>
@@ -130,11 +149,11 @@
       <h2 class="h6">Team</h2>
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="team_meta" id="team_meta" {% if f.team_meta %}checked{% endif %}>
-        <label class="form-check-label" for="team_meta">Users can see metadata &amp; audit log</label>
+        <label class="form-check-label" for="team_meta">Can see metadata &amp; audit log</label>
       </div>
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
-        <label class="form-check-label" for="team_view">Users can view the paste itself <span class="text-secondary form-text-sm">(not counted, but logged)</span></label>
+        <label class="form-check-label" for="team_view">Can view the paste itself <span class="text-secondary form-text-sm">(not counted, but logged)</span></label>
       </div>
     </div></div>
     {% endif %}

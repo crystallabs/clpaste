@@ -24,9 +24,14 @@ admins) and **guests** (not signed in).
 * **Team options:** users may see a paste's metadata & audit log,
   and/or view the paste itself without consuming a retrieval (logged).
 * **Audit log** of who retrieved what and when (identity from OIDC when
-  available; IPs only if the author opted in). The log outlives the paste.
+  available; IPs only if the author opted in). The log outlives the paste
+  (until deletion, if the paste has it set).
 * **Expiry** immediately when a limit is hit, plus an hourly sweep
   for time-expired pastes. Retrievers are told what remains or that it is gone.
+* **Deletion** (optional): unlike expiry, removes every trace — record,
+  metadata and audit log — N hours after expiry, or, anchored to
+  retrievals instead, N hours after the last successful retrieval
+  (0 = the moment it is retrieved).
 * **Pastes page:** users see their own and team-shared pastes with protection
   badges; admins see every paste, get peek-as-admin / view-as-guest /
   expire-now on the per-paste settings + log page. The navbar ID box says
@@ -203,6 +208,11 @@ Notable ones:
   remains is the creator, timestamps, the reason, the team-metadata flag
   (to gate the log) and the log itself. Later access attempts are logged
   as denied.
+* **Deletion**, when set on a paste, later removes that residual record and
+  the audit log entirely (the ID then reads "No such paste"). The deadline
+  arms at expiry, or — with "delete after last retrieval" — is (re)set by
+  every successful counted retrieval; 0 hours means immediately. Due
+  deletions happen at the triggering event or on the hourly sweep.
 * **CLI login** mirrors `gcloud auth login`: the CLI opens
   `BASE_URL/cli/auth?port=…&state=…&challenge=…`, the *server* runs the
   OIDC flow (the CLI never holds OIDC secrets), then redirects the browser
@@ -304,7 +314,7 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --site-name VALUE                             CLPASTE_SITE_NAME                  Site name shown in the UI [default: clpaste]
   --sweep-interval VALUE                        CLPASTE_SWEEP_INTERVAL             How often expired pastes are purged [default: 3600]
   --theme-dir VALUE                             CLPASTE_THEME_DIR                  Directory overriding built-in templates (*.html) and static files (static/*) [default: empty]
-  --ticket-ttl VALUE                            CLPASTE_TICKET_TTL                 How long attachment download links stay valid after a successful web retrieval [default: 600]
+  --ticket-ttl VALUE                            CLPASTE_TICKET_TTL                 How long attachment download links stay valid after a successful web retrieval [default: 1800]
   --token-ttl VALUE                             CLPASTE_TOKEN_TTL                  CLI token lifetime [default: 7776000]
   --trusted-proxies VALUE                       CLPASTE_TRUSTED_PROXIES            Comma-separated IPs/CIDRs whose X-Forwarded-For is trusted [default: empty]
   --unprotected / --no-unprotected              CLPASTE_UNPROTECTED                Guests can create public pastes without signing in; private/team features are hidden and listing pastes requires an admin [default: false]
@@ -336,6 +346,8 @@ Text is read from stdin unless --text is given.
     --views N                        Max retrievals (0 = unlimited; server default: unlimited for private, 1 for public)
     --ttl HOURS                      Expiry in hours (0 = never; default from server)
     --max-failures N                 Max retrieval (PIN/password) failures before expiry (0 = no limit)
+    --delete-after HOURS             Delete the paste record (incl. audit log) this many hours after expiry (0 = at once; default: never)
+    --delete-on-retrieval            Anchor deletion to retrievals instead: each successful retrieval restarts the timer (0 = delete when retrieved)
     --cli-only                       Retrievable only via CLI
     --team-meta                      Users may see metadata & audit log (server default: on)
     --no-team-meta                   Hide metadata & audit log from other users

@@ -56,6 +56,8 @@ def input(text = "hello", **opts)
     team_view: opts[:team_view]? || false,
     log_ips: opts[:log_ips]? || false,
     max_failures: opts[:max_failures]? || 3,
+    delete_after_hours: opts[:delete_after_hours]? || nil,
+    delete_on_retrieval: opts[:delete_on_retrieval]? || false,
   )
 end
 

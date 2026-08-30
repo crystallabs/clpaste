@@ -110,6 +110,13 @@ module Clpaste
       @db.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
     end
 
+    # Full deletion: the paste row, its audit log and failure counters.
+    def delete_paste(id : String)
+      @db.exec q("DELETE FROM pastes WHERE id = ?"), id
+      @db.exec q("DELETE FROM log WHERE paste_id = ?"), id
+      @db.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
+    end
+
     def expired_ids(now : Time = Time.utc) : Array(String)
       @db.query_all q("SELECT id FROM pastes WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= ?"), now.to_unix, as: String
     end

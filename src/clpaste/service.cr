@@ -38,7 +38,9 @@ module Clpaste
       team_meta : Bool,
       team_view : Bool,
       log_ips : Bool,
-      max_failures : Int32
+      max_failures : Int32,
+      delete_after_hours : Float64? = nil,
+      delete_on_retrieval : Bool = false
 
     record Created, id : String, meta : Meta, pin : String?, password : String?
 
@@ -148,6 +150,8 @@ module Clpaste
       meta.team_view = input.team_view
       meta.log_ips = input.log_ips
       meta.max_failures = {input.max_failures, 0}.max
+      meta.delete_after_hours = input.delete_after_hours.try { |hours| hours >= 0 ? hours : nil }
+      meta.delete_on_retrieval = input.delete_on_retrieval
       meta.text_size = input.text.bytesize.to_i64
       meta.attachments = input.files.map { |file| AttachmentInfo.new(file.name, file.data.size.to_i64, file.content_type) }
       meta.pin_hash = input.pin.try { |secret| Crypto.hash_secret(secret) }
@@ -202,8 +206,8 @@ module Clpaste
         in .not_allowed?   then deny(id, meta, req, "not_allowed", "Your account is not allowed to view this paste")
         in .ip_blocked?    then deny(id, meta, req, "ip_blocked", "Not available from your network")
         in .cli_only?      then deny(id, meta, req, "cli_only", "This paste can only be retrieved with the CLI")
-        in .need_pin?      then raise Error.new("need_pin", "PIN required")
-        in .need_password? then raise Error.new("need_password", "Password required")
+        in .need_pin?      then prompt(id, meta, req, "need_pin", "PIN required")
+        in .need_password? then prompt(id, meta, req, "need_password", "Password required")
         end
 
         # Secrets: verify PIN, then unwrap key with password.
@@ -219,9 +223,14 @@ module Clpaste
         @repo.clear_attempts(id, ipkey(meta, req.ctx.ip))
 
         meta.views += 1
+        # A successful retrieval (re)starts the deletion timer in
+        # delete-on-retrieval mode; 0 hours deletes the paste right away.
+        if meta.delete_on_retrieval? && (hours = meta.delete_after_hours)
+          meta.delete_at = Time.utc + (hours * 3600).seconds
+        end
         expired_now = false
         if (r = meta.remaining_views) && r <= 0
-          expire_locked(id, meta, "view limit reached", req, log_it: false)
+          expire_locked(id, meta, "view limit reached", req, log_it: false, delete_due: false)
           expired_now = true
         else
           @repo.update_meta(id, seal_meta(id, meta))
@@ -230,6 +239,7 @@ module Clpaste
         @repo.log(id, "expired", nil, nil, nil, "system", "view limit reached") if expired_now
 
         ticket = want_ticket && !body.files.empty? ? issue_ticket(id, body) : nil
+        delete_if_due(id, meta)
         Retrieved.new(id, meta, body, expired_now, true, ticket)
       end
     end
@@ -279,6 +289,12 @@ module Clpaste
       raise Error.new(code, msg)
     end
 
+    # The viewer reached a PIN/password entry page (content not shown yet).
+    private def prompt(id, meta, req, code, msg)
+      log(id, "prompt", meta, req, code)
+      raise Error.new(code, msg)
+    end
+
     # Wrong PIN/password: bump the counter, maybe expire.
     private def failed(id, meta, req, code, msg)
       n = @repo.bump_attempts(id, ipkey(meta, req.ctx.ip))
@@ -290,8 +306,16 @@ module Clpaste
       raise Error.new(code, msg)
     end
 
-    private def expire_locked(id : String, meta : Meta, reason : String, req : Request?, log_it = true)
-      @repo.expire_paste(id, seal_meta(id, meta.residual(reason)))
+    private def expire_locked(id : String, meta : Meta, reason : String, req : Request?, log_it = true, delete_due = true)
+      now = Time.utc
+      residual = meta.residual(reason, now)
+      # Expiry starts the deletion timer (unless it is retrieval-anchored,
+      # where an already armed deadline just carries over).
+      if !meta.delete_on_retrieval? && (h = meta.delete_after_hours)
+        residual.delete_at = now + (h * 3600).seconds
+      end
+      meta.delete_at = residual.delete_at
+      @repo.expire_paste(id, seal_meta(id, residual))
       if log_it
         if req
           log(id, "expired", meta, req, reason)
@@ -300,6 +324,15 @@ module Clpaste
         end
       end
       Log.info { "paste #{id} expired: #{reason}" }
+      delete_if_due(id, meta, now) if delete_due
+    end
+
+    # Remove every trace of a paste whose deletion deadline has passed.
+    private def delete_if_due(id : String, meta : Meta, now = Time.utc) : Bool
+      return false unless (da = meta.delete_at) && da <= now
+      @repo.delete_paste(id)
+      Log.info { "paste #{id} deleted (#{meta.delete_desc})" }
+      true
     end
 
     def expire(id : String, reason : String, req : Request?)
@@ -320,8 +353,13 @@ module Clpaste
         rescue e
           Log.error(exception: e) { "sweep: failed to expire #{id}" }
         end
-        @repo.purge_sessions
         now = Time.utc
+        @repo.all_pastes.each do |row|
+          delete_if_due(row.id, open_meta(row), now)
+        rescue e
+          Log.error(exception: e) { "sweep: failed to delete #{row.id}" }
+        end
+        @repo.purge_sessions
         @tickets.reject! { |_, ticket| ticket.expires_at <= now }
       end
     end

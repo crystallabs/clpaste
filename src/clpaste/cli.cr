@@ -271,6 +271,8 @@ module Clpaste
         parser.on("--views N", "Max retrievals (0 = unlimited; server default: unlimited for private, 1 for public)") { |v| fields["max_views"] = v }
         parser.on("--ttl HOURS", "Expiry in hours (0 = never; default from server)") { |v| fields["ttl_hours"] = v }
         parser.on("--max-failures N", "Max retrieval (PIN/password) failures before expiry (0 = no limit)") { |v| fields["max_failures"] = v }
+        parser.on("--delete-after HOURS", "Delete the paste record (incl. audit log) this many hours after expiry (0 = at once; default: never)") { |v| fields["delete_after_hours"] = v }
+        parser.on("--delete-on-retrieval", "Anchor deletion to retrievals instead: each successful retrieval restarts the timer (0 = delete when retrieved)") { fields["delete_on_retrieval"] = "true" }
         parser.on("--cli-only", "Retrievable only via CLI") { fields["cli_only"] = "true" }
         parser.on("--team-meta", "Users may see metadata & audit log (server default: on)") { fields["team_meta"] = "true" }
         parser.on("--no-team-meta", "Hide metadata & audit log from other users") { fields["team_meta"] = "false" }

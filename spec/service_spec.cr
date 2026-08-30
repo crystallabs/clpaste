@@ -124,6 +124,51 @@ describe Clpaste::Service do
     svc.ticket(t, "0000000000").should be_nil
   end
 
+  it "deletes every trace per the deletion rule" do
+    svc = Clpaste::Service.new(fresh_repo("del"), MASTER)
+
+    # 0 h after last retrieval: gone the moment it is retrieved.
+    a = svc.create(input("burn", visibility: "public", delete_after_hours: 0.0, delete_on_retrieval: true), alice, sreq(alice))
+    a.meta.delete_desc.should eq("immediately after last retrieval")
+    svc.retrieve(a.id, sreq(nil), false).body.text.should eq("burn")
+    svc.meta_for(a.id).should be_nil
+    svc.repo.log_for(a.id).should be_empty
+    expect_error("not_found") { svc.retrieve(a.id, sreq(nil), false) }
+
+    # N h after last retrieval: each successful retrieval restarts the timer.
+    b = svc.create(input("later", visibility: "public", delete_after_hours: 1.0, delete_on_retrieval: true), alice, sreq(alice))
+    must(svc.meta_for(b.id))[1].delete_at.should be_nil # not armed until retrieved
+    svc.retrieve(b.id, sreq(nil), false)
+    first = must(must(svc.meta_for(b.id))[1].delete_at)
+    (first - Time.utc).should be_close(1.hour, 5.seconds)
+    svc.retrieve(b.id, sreq(nil), false)
+    must(must(svc.meta_for(b.id))[1].delete_at).should be >= first
+    svc.sweep
+    svc.meta_for(b.id).should_not be_nil # not due yet
+
+    # 0 h after expiry: the record disappears as the paste expires.
+    c = svc.create(input("gone", delete_after_hours: 0.0), alice, sreq(alice))
+    svc.expire(c.id, "expired by spec", sreq(alice))
+    svc.meta_for(c.id).should be_nil
+    svc.repo.log_for(c.id).should be_empty
+
+    # N h after expiry: armed when the view limit expires it, swept when due.
+    d = svc.create(input("keep", visibility: "public", max_views: 1, delete_after_hours: 2.0), alice, sreq(alice))
+    d.meta.delete_desc.should eq("2 h after expiry")
+    svc.retrieve(d.id, sreq(nil), false).expired_now.should be_true
+    row, meta = must(svc.meta_for(d.id))
+    row.state.should eq("expired")
+    (must(meta.delete_at) - Time.utc).should be_close(2.hours, 5.seconds)
+    svc.sweep
+    svc.meta_for(d.id).should_not be_nil
+
+    # No deletion rule: expiry leaves the residual record alone.
+    e = svc.create(input("stay"), alice, sreq(alice))
+    svc.expire(e.id, "expired by spec", sreq(alice))
+    svc.sweep
+    must(svc.meta_for(e.id))[0].state.should eq("expired")
+  end
+
   it "validates input" do
     svc = Clpaste::Service.new(fresh_repo("svc"), MASTER)
     expect_error("invalid") { svc.create(input(""), alice, sreq(alice)) }

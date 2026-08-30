@@ -400,6 +400,7 @@ module Clpaste
         "max_views" => default_max_views_str("guests"),
         "ttl_hours" => Superconf.default_ttl_hours > 0 ? Superconf.default_ttl_hours.to_s.sub(/\.0$/, "") : "",
         "max_failures" => Superconf.default_max_failures > 0 ? Superconf.default_max_failures.to_s : "",
+        "delete_after_hours" => "72", "delete_on_retrieval" => false,
         "cli_only" => false, "team_meta" => Superconf.default_team_meta && team, "team_view" => false, "log_ips" => false,
       }
     end
@@ -533,6 +534,8 @@ module Clpaste
         team_view: truthy?(f["team_view"]?),
         log_ips: truthy?(f["log_ips"]?),
         max_failures: f.has_key?("max_failures") ? (f["max_failures"].presence.try(&.to_i?) || 0) : Superconf.default_max_failures,
+        delete_after_hours: f["delete_after_hours"]?.presence.try(&.to_f?), # absent or empty => never deleted
+        delete_on_retrieval: truthy?(f["delete_on_retrieval"]?),
       )
       {input, pin}
     end
@@ -542,7 +545,7 @@ module Clpaste
       fields, files = parse_form(req)
       # HTML checkboxes are simply absent when unchecked. PIN/password are plain
       # fields: empty means off (input_from handles that when *_enabled is absent).
-      %w[cli_only team_meta team_view log_ips].each { |k| fields[k] = fields[k]? || "false" }
+      %w[cli_only team_meta team_view log_ips delete_on_retrieval].each { |k| fields[k] = fields[k]? || "false" }
       restrict_fields!(req, fields)
       begin
         input, _ = input_from(fields, files)
@@ -551,7 +554,7 @@ module Clpaste
       rescue e : Service::Error
         f = default_form(team_capable?(req.identity))
         fields.each { |k, v| f[k] = v }
-        %w[cli_only team_meta team_view log_ips].each { |k| f[k] = truthy?(fields[k]?) }
+        %w[cli_only team_meta team_view log_ips delete_on_retrieval].each { |k| f[k] = truthy?(fields[k]?) }
         # Canonical audience so the right visibility tile is re-checked.
         fields["visibility"]?.try { |v| f["visibility"] = Meta.audience(v) }
         render(req, "index.html", form_vars(f, e.message), 400)
@@ -570,6 +573,7 @@ module Clpaste
       add.call("Views", m.max_views.try { |v| "max #{v}" } || "unlimited")
       add.call("Expires", fmt_time(m.expires_at))
       add.call("Failures", "expires after #{m.max_failures} failed attempts") if m.max_failures > 0
+      m.delete_desc.try { |desc| add.call("Delete", desc) }
       add.call("CLI only", "yes") if m.cli_only?
       access = case m.audience
                when "guests" then "guests (no login needed)"
@@ -629,7 +633,7 @@ module Clpaste
       end
     end
 
-    private def web_retrieve_error(req : Req, id : String, e : Service::Error, action : String? = nil)
+    private def web_retrieve_error(req : Req, id : String, e : Service::Error, action : String? = nil, note : String? = nil)
       case e.code
       when "need_login"
         render(req, "gate.html", {"title" => "Sign in", "id_fmt" => Ids.format(id), "need_login" => true, "next" => req.path}, 401)
@@ -641,6 +645,7 @@ module Clpaste
           "need_pin"      => meta.try(&.pin?) || false,
           "need_password" => meta.try(&.password?) || false,
           "error"         => e.code.starts_with?("bad_") ? e.message : nil,
+          "note"          => note,
           "action"        => action || "/p/#{id}",
           "peek"          => !action.nil?, # an explicit action means a peek route, not a counted view
         }, e.code.starts_with?("bad_") ? 403 : 200)
@@ -727,10 +732,6 @@ module Clpaste
       @svc.log(id, admin ? "admin_meta" : "user_meta", meta, req.service_request)
       base = "/pastes/#{id}"
       can_view = !meta.expired? && Access.team_view?(meta, identity)
-      note = nil
-      if (can_view || (admin && !meta.expired?)) && meta.password?
-        note = "This paste is password-protected: its content key is wrapped with the password, so viewing requires the password even for admins."
-      end
       settings = [
         ["Title", meta.title || "—"], ["Access permissions", meta.audience], ["Creator", meta.creator],
         ["Created", fmt_time_s(meta.created_at)], ["Expires", fmt_time_s(meta.expires_at)],
@@ -744,15 +745,17 @@ module Clpaste
           ["Restricted to emails", meta.emails.empty? ? (meta.public? ? "n/a (guest paste)" : "unrestricted") : meta.emails.join(", ")],
           ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],
           ["CLI only", meta.cli_only? ? "yes" : "no"],
+          ["Delete", meta.delete_desc || "never"],
         ]
         settings.concat [
-          ["Users can see metadata", meta.team_meta? ? "yes" : "no"], ["Users can view content", meta.team_view? ? "yes" : "no"],
+          ["Team can see metadata", meta.team_meta? ? "yes" : "no"], ["Team can view content", meta.team_view? ? "yes" : "no"],
           ["IPs logged", meta.log_ips? ? "yes" : "no"],
           ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
           ["Text size", "#{meta.text_size} B"],
           ["Attachments", meta.attachments.empty? ? "none" : meta.attachments.map { |a| "#{a.name} (#{a.size} B)" }.join(", ")],
         ]
       end
+      meta.delete_at.try { |due| settings << ["Deletes", fmt_time_s(due)] }
       log = @repo.log_for(id).map do |e|
         {"at" => fmt_time(e.at), "action" => e.action, "identity" => e.identity || "", "ip" => e.ip || "", "channel" => e.channel, "detail" => e.detail || ""}
       end
@@ -766,7 +769,6 @@ module Clpaste
         "view_href"       => "#{base}/view",
         "admin_view_href" => "#{base}/admin-view",
         "expire_href"     => "#{base}/expire",
-        "note"            => note,
         "settings"        => settings,
         "log"             => log,
       })
@@ -787,14 +789,16 @@ module Clpaste
         rate_check!(req)
         password = fields["password"]?
       end
+      note = admin && meta.password? ? "This paste is password-protected: its content key is wrapped with the password, so viewing requires the password even for admins." : nil
       if meta.password? && password.to_s.empty?
-        return render(req, "gate.html", {"title" => "Password", "id_fmt" => Ids.format(id), "need_password" => true, "action" => req.path, "peek" => true})
+        @svc.log(id, "prompt", meta, req.service_request, "need_password")
+        return render(req, "gate.html", {"title" => "Password", "id_fmt" => Ids.format(id), "need_password" => true, "action" => req.path, "peek" => true, "note" => note})
       end
       begin
         r = @svc.view_uncounted(id, req.service_request(nil, password), admin ? "admin_view" : "user_view", want_ticket: true)
         render_paste(req, r)
       rescue e : Service::Error
-        web_retrieve_error(req, id, e, action: req.path)
+        web_retrieve_error(req, id, e, action: req.path, note: note)
       end
     rescue e : Service::Error
       e.code == "need_login" ? unauthenticated(req) : raise e

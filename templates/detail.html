@@ -5,11 +5,10 @@
   <div>
     {% if can_view and not admin %}<a class="btn btn-sm btn-primary" href="{{ view_href }}" title="Not counted as a retrieval, but logged">Peek</a>{% endif %}
     {% if admin and not meta.expired %}<a class="btn btn-sm btn-outline-primary" href="{{ admin_view_href }}" title="Not counted as a retrieval, but logged">Peek as admin</a>
-    <a class="btn btn-sm btn-outline-primary" href="/p/{{ id_fmt }}" title="Opens the normal retrieval page: counts as a retrieval and is logged like any guest view">View paste as guest</a>{% endif %}
+    <a class="btn btn-sm btn-outline-primary" href="/p/{{ id_fmt }}" title="Opens the normal retrieval page: counts as a retrieval and is logged">View</a>{% endif %}
     {% if can_expire %}<form class="d-inline" method="post" action="{{ expire_href }}" onsubmit="return confirm('Expire this paste now?')"><button class="btn btn-sm btn-outline-danger">Expire now</button></form>{% endif %}
   </div>
 </div>
-{% if note %}<div class="alert alert-info">{{ note }}</div>{% endif %}
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="card"><div class="card-header">Settings</div>

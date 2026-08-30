@@ -272,7 +272,7 @@ describe Clpaste::Server do
     # Admins get exactly the admin/guest view buttons, without the redundant team one.
     d = root.get("/pastes/#{id}")
     d.body.should contain("Peek as admin")
-    d.body.should contain("View paste as guest")
+    d.body.should contain(">View</a>")
     d.body.should_not contain(">Peek</a>")
     idp.groups = [] of String
 
@@ -496,8 +496,8 @@ describe Clpaste::Server do
       det = root.get("/pastes/#{id}")
       det.body.should contain("carol@example.com")
       # Team flags sent by the form were dropped: plain users can't set them.
-      det.body.should contain("Users can see metadata</th><td>no</td>")
-      det.body.should contain("Users can view content</th><td>no</td>")
+      det.body.should contain("Team can see metadata</th><td>no</td>")
+      det.body.should contain("Team can view content</th><td>no</td>")
       meta = must(svc.meta_for(must(Clpaste::Ids.normalize(id))))[1]
       meta.team_meta?.should be_false
       meta.team_view?.should be_false
