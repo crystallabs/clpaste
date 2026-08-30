@@ -1,0 +1,8 @@
+/bin/
+/lib/
+/.shards/
+*.db
+*.db-wal
+*.db-shm
+/.env
+*.key

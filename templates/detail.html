@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-baseline">
+  <h1 class="h4">Paste <span class="mono">{{ id_fmt }}</span> {% if meta.expired %}<span class="badge text-bg-dark">expired</span>{% else %}<span class="badge text-bg-success">live</span>{% endif %}</h1>
+  <div>
+    {% if can_view %}<a class="btn btn-sm btn-primary" href="{{ view_href }}">View paste</a>{% endif %}
+    {% if admin and not meta.expired %}<a class="btn btn-sm btn-outline-primary" href="{{ admin_view_href }}">View paste as admin</a>
+    <a class="btn btn-sm btn-outline-primary" href="/p/{{ id_fmt }}" title="Opens the normal retrieval page: counts as a retrieval and is logged like any guest view">View paste as guest</a>{% endif %}
+    {% if can_expire %}<form class="d-inline" method="post" action="{{ expire_href }}" onsubmit="return confirm('Expire now this paste now?')"><button class="btn btn-sm btn-outline-danger">Expire now</button></form>{% endif %}
+  </div>
+</div>
+{% if note %}<div class="alert alert-info">{{ note }}</div>{% endif %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card"><div class="card-header">Settings</div>
+    <table class="table table-sm mb-0"><tbody>
+      {% for kv in settings %}<tr><th class="text-nowrap">{{ kv[0] }}</th><td>{{ kv[1] }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card"><div class="card-header">Access log <span class="badge text-bg-secondary">{{ log | length }}</span></div>
+    <div class="table-responsive"><table class="table table-sm log mb-0">
+      <thead><tr><th>When (UTC)</th><th>Action</th><th>Who</th><th>IP</th><th>Via</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for e in log %}
+      <tr class="{% if e.action == 'denied' %}table-warning{% elif e.action == 'expired' %}table-danger{% endif %}">
+        <td class="text-nowrap">{{ e.at }}</td><td>{{ e.action }}</td><td>{{ e.identity }}</td><td class="mono">{{ e.ip }}</td><td>{{ e.channel }}</td><td class="small">{{ e.detail }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+</div>
+{% endblock %}

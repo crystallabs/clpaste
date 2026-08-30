@@ -1,0 +1,26 @@
+version: 2.0
+shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.7.1-dev+git.commit.72924b6848cb1fa2bafb2c6fcace756d077094fb
+
+  crinja:
+    git: https://github.com/straight-shoota/crinja.git
+    version: 0.9.0
+
+  db:
+    git: https://github.com/crystal-lang/crystal-db.git
+    version: 0.14.0
+
+  pg:
+    git: https://github.com/will/crystal-pg.git
+    version: 0.30.0
+
+  sqlite3:
+    git: https://github.com/crystal-lang/crystal-sqlite3.git
+    version: 0.23.0
+
+  superconf:
+    git: https://github.com/crystallabs/superconf.cr.git
+    version: 0.1.0+git.commit.7dbef7fcb2c01af59d4bb46f85bb2b6befa68a94
+

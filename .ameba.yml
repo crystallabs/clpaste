@@ -1,0 +1,5 @@
+# Metrics/CyclomaticComplexity is disabled on purpose: the offenders are the
+# HTTP route dispatcher, form parsing and CLI option handling, where a flat
+# case/when reads better than the split-up alternative.
+Metrics/CyclomaticComplexity:
+  Enabled: false

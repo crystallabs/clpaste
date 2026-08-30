@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-6">
+  <div class="card"><div class="card-body">
+    <h1 class="h5">CLI login</h1>
+    {% if code %}
+    <p>Paste this code into the waiting <code>clpaste login</code> prompt:</p>
+    <p class="mono paste-id user-select-all">{{ code }}</p>
+    <p class="small text-secondary">It is valid for 5 minutes.</p>
+    {% else %}
+    <p>{{ message }}</p>
+    {% endif %}
+  </div></div>
+</div></div>
+{% endblock %}

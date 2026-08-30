@@ -1,0 +1,14 @@
+/* Clpaste – small additions on top of Bootstrap */
+pre.paste-text { white-space: pre-wrap; word-break: break-word; max-height: 70vh; overflow: auto; }
+.mono { font-family: var(--bs-font-monospace); }
+.paste-id { font-size: 1.6rem; letter-spacing: .08em; }
+.flag { font-size: .75rem; }
+table.log td, table.log th { font-size: .85rem; }
+.form-text-sm { font-size: .8rem; }
+tr.clickable { cursor: pointer; }
+
+/* Public / Private selector tiles on the new-paste form */
+.vis-tile { display: block; height: 100%; padding: .6rem .75rem .6rem 2.1rem; position: relative; border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius); cursor: pointer; }
+.vis-tile .form-check-input { position: absolute; left: .75rem; top: .8rem; margin: 0; }
+.vis-tile:hover { border-color: var(--bs-secondary); }
+.vis-tile:has(input:checked) { border-color: var(--bs-primary); background: rgba(var(--bs-primary-rgb), .08); }

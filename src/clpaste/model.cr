@@ -1,0 +1,179 @@
+require "json"
+
+module Clpaste
+  # Everything we know about a paste except its content. Stored as JSON,
+  # encrypted with the master key. After expiry only a residual subset
+  # survives (see `Meta#residual`).
+  class Meta
+    include JSON::Serializable
+
+    property visibility : String = "private" # private | public
+    property title : String? = nil
+    property creator : String = ""
+    property created_at : Time = Time.utc
+    property expires_at : Time? = nil
+    property max_views : Int32? = nil
+    property views : Int32 = 0
+    property pin_hash : String? = nil
+    property password_salt : String? = nil # base64; presence => password protected
+    property key_wrap : String = ""        # base64; data key sealed with master or password-derived key
+    property emails : Array(String) = [] of String
+    property ips : Array(String) = [] of String
+    property? cli_only : Bool = false
+    property? team_meta : Bool = false
+    property? team_view : Bool = false
+    property? log_ips : Bool = false
+    property max_failures : Int32 = 0
+    property text_size : Int64 = 0
+    property attachments : Array(AttachmentInfo) = [] of AttachmentInfo
+    # residual
+    property expired_at : Time? = nil
+    property expiry_reason : String? = nil
+
+    def initialize
+    end
+
+    def pin? : Bool
+      !pin_hash.nil?
+    end
+
+    def password? : Bool
+      !password_salt.nil?
+    end
+
+    def public? : Bool
+      visibility == "public"
+    end
+
+    def expired? : Bool
+      !expired_at.nil?
+    end
+
+    def past_due?(now = Time.utc) : Bool
+      (e = expires_at) ? e <= now : false
+    end
+
+    def remaining_views : Int32?
+      (m = max_views) ? {m - views, 0}.max : nil
+    end
+
+    def remaining_time(now = Time.utc) : Time::Span?
+      (e = expires_at) ? (e - now) : nil
+    end
+
+    # What survives expiry: enough to attribute the log and to decide
+    # who may see it.
+    def residual(reason : String, now = Time.utc) : Meta
+      r = Meta.new
+      r.visibility = visibility
+      r.creator = creator
+      r.created_at = created_at
+      r.team_meta = team_meta?
+      r.log_ips = log_ips?
+      r.expired_at = now
+      r.expiry_reason = reason
+      r
+    end
+
+    # Short protection summary for lists.
+    def flags : Array(String)
+      f = [] of String
+      f << (public? ? "public" : "private")
+      f << "pin" if pin?
+      f << "password" if password?
+      f << "emails" unless emails.empty?
+      f << "ips" unless ips.empty?
+      f << "cli" if cli_only?
+      f << "team-meta" if team_meta?
+      f << "team-view" if team_view?
+      f << "views:#{max_views}" if max_views
+      f << "log-ips" if log_ips?
+      f
+    end
+  end
+
+  struct AttachmentInfo
+    include JSON::Serializable
+    property name : String
+    property size : Int64
+    property content_type : String
+
+    def initialize(@name, @size, @content_type)
+    end
+  end
+
+  # The encrypted payload.
+  class Body
+    include JSON::Serializable
+    property text : String = ""
+    property files : Array(Attachment) = [] of Attachment
+
+    def initialize(@text = "", @files = [] of Attachment)
+    end
+  end
+
+  class Attachment
+    include JSON::Serializable
+    property name : String
+    property content_type : String
+    @[JSON::Field(converter: Clpaste::Attachment::BytesConverter)]
+    property data : Bytes
+
+    def initialize(@name, @content_type, @data)
+    end
+
+    module BytesConverter
+      def self.from_json(pull : JSON::PullParser) : Bytes
+        Base64.decode(pull.read_string)
+      end
+
+      def self.to_json(value : Bytes, builder : JSON::Builder)
+        builder.string(Base64.strict_encode(value))
+      end
+    end
+  end
+
+  struct LogEntry
+    getter id : Int64
+    getter paste_id : String
+    getter at : Time
+    getter action : String
+    getter identity : String?
+    getter ip : String?
+    getter ua : String?
+    getter channel : String
+    getter detail : String?
+
+    def initialize(@id, @paste_id, @at, @action, @identity, @ip, @ua, @channel, @detail)
+    end
+  end
+
+  struct Session
+    getter id : String
+    getter kind : String # web | token
+    getter email : String
+    getter name : String
+    getter created_at : Time
+    getter expires_at : Time
+    getter label : String
+    getter? admin : Bool
+
+    def initialize(@id, @kind, @email, @name, @created_at, @expires_at, @label, @admin)
+    end
+
+    def token? : Bool
+      kind == "token"
+    end
+  end
+
+  # Who is asking, and how.
+  struct Identity
+    getter email : String
+    getter name : String
+    getter? admin : Bool
+    getter? via_token : Bool
+
+    def initialize(@email, @name, @admin, @via_token)
+    end
+  end
+end

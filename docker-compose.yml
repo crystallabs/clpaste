@@ -1,0 +1,26 @@
+services:
+  clpaste:
+    build: .
+    image: clpaste:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - clpaste-data:/data
+    # For PostgreSQL instead of SQLite: uncomment the db service below and set in .env
+    #   CLPASTE_DB_URL=  PGHOST=db  POSTGRES_USER_PASSWORD=...  POSTGRES_PASSWORD=...
+    # (CLPASTE_DB_URL must be empty so the PG* variables are used.)
+    # depends_on: [db]
+
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - pg-data:/var/lib/postgresql/data
+
+volumes:
+  clpaste-data:
+  # pg-data:

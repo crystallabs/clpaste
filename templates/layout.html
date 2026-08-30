@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-bs-theme="{{ color_mode }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if title %}{{ title }} – {% endif %}{{ site_name }}</title>
+  <link rel="stylesheet" href="/static/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <script>
+    (function(){ if (document.documentElement.getAttribute('data-bs-theme') === 'auto') {
+      document.documentElement.setAttribute('data-bs-theme',
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } })();
+  </script>
+</head>
+<body>
+<nav class="navbar navbar-expand bg-body-tertiary border-bottom mb-4">
+  <div class="container">
+    <a class="navbar-brand" href="/">{{ site_name }}</a>
+    <ul class="navbar-nav me-auto">
+      {% if user or unprotected %}
+      <li class="nav-item"><a class="nav-link" href="/">New paste</a></li>
+      {% endif %}
+      {% if user and (user.admin or not unprotected) %}
+      <li class="nav-item"><a class="nav-link" href="/pastes">Pastes</a></li>
+      {% endif %}
+    </ul>
+    <form class="d-flex me-3" action="/open" method="get" id="openform">
+      <input class="form-control form-control-sm me-1 mono" name="id" placeholder="Paste ID" size="14" aria-label="Paste ID" autocomplete="off" required>
+      <button class="btn btn-sm btn-outline-secondary" type="submit" disabled>Open</button>
+    </form>
+    <span class="navbar-text small">
+      {% if user %}{{ user.email }}{% if user.admin %} <span class="badge text-bg-warning">admin</span>{% endif %}
+        &nbsp;<a href="/logout" class="link-secondary">Logout</a>
+      {% else %}<a href="/login" class="btn btn-sm btn-primary">Login</a>{% endif %}
+    </span>
+  </div>
+</nav>
+<main class="container mb-5">
+  {% if flash %}<div class="alert alert-{{ flash_kind | default('info') }}">{{ flash }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<script>
+  (function(){ var f=document.getElementById('openform'), i=f.querySelector('input'), b=f.querySelector('button');
+    function chk(){ b.disabled = i.value.replace(/[^0-9]/g,'').length !== {{ id_digits }}; }
+    i.addEventListener('input', chk); chk(); })();
+</script>
+<footer class="container text-secondary small mb-4">{{ site_name }} · clpaste {{ version }}</footer>
+</body>
+</html>
