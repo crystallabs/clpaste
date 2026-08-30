@@ -6,9 +6,9 @@ WORKDIR /src
 COPY shard.yml shard.lock ./
 RUN shards install --production
 COPY . .
-RUN shards build --release --static --no-debug && strip bin/clpaste
+RUN shards build --production --release --static --no-debug && strip bin/clpaste
 
-FROM alpine:3.20
+FROM alpine:3.20 AS paste
 RUN apk add --no-cache ca-certificates && adduser -D -u 1000 clpaste && mkdir /data && chown clpaste /data
 COPY --from=build /src/bin/clpaste /usr/local/bin/clpaste
 USER clpaste
@@ -20,3 +20,5 @@ EXPOSE 8080
 HEALTHCHECK CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["clpaste"]
 CMD ["serve"]
+
+FROM paste

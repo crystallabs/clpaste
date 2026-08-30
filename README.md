@@ -217,6 +217,10 @@ On Debian/Ubuntu the build needs `pkg-config libssl-dev libsqlite3-dev
 libxml2-dev libyaml-dev libpcre2-dev`. A fully static binary is easiest on
 Alpine (see `Dockerfile`).
 
+## License
+
+AGPL-3.0 — see [LICENSE](LICENSE).
+
 ## Reference: `clpaste --help`
 
 ```
