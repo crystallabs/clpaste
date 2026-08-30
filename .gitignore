@@ -6,3 +6,4 @@
 *.db-shm
 /.env
 *.key
+/data/

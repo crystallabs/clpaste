@@ -1,0 +1,14 @@
+.git
+.env
+*.db
+*.db-wal
+*.db-shm
+*.key
+bin/
+lib/
+.shards/
+data/
+screenshots/
+*.conf
+Makefile
+docker-compose.yml
