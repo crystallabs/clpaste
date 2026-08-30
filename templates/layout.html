@@ -20,7 +20,7 @@
       {% if user or unprotected %}
       <li class="nav-item"><a class="nav-link" href="/">New paste</a></li>
       {% endif %}
-      {% if user and (user.admin or not unprotected) %}
+      {% if user and (user.admin or team) %}
       <li class="nav-item"><a class="nav-link" href="/pastes">Pastes</a></li>
       {% endif %}
     </ul>

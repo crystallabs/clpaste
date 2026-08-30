@@ -202,6 +202,7 @@ module Clpaste
         "user"        => user,
         "oidc"        => @oidc.configured?,
         "unprotected" => unprotected?,
+        "team"        => !Config.plain_users?,
       })
     end
 
@@ -309,9 +310,9 @@ module Clpaste
     end
 
     # Who may use the team pages: any signed-in member normally, admins only
-    # in unprotected mode.
+    # when signed-in non-admins are plain users (see Config.plain_users?).
     private def require_member(req : Req) : Identity
-      unprotected? ? require_admin(req) : require_login(req)
+      Config.plain_users? ? require_admin(req) : require_login(req)
     end
 
     # Who may create a paste; nil means "must sign in first".
@@ -319,15 +320,18 @@ module Clpaste
       req.identity || (unprotected? ? ANONYMOUS : nil)
     end
 
-    # In unprotected mode every paste is public and team-less, whatever the
-    # form or API client sent; anonymous creation is also rate limited.
-    private def restrict_unprotected!(req : Req, fields : Hash(String, String))
+    # Whatever the form or API client sent: without a team there are no team
+    # options, and in unprotected mode every paste is also public and
+    # anonymous creation is rate limited.
+    private def restrict_fields!(req : Req, fields : Hash(String, String))
+      if Config.plain_users?
+        fields["team_meta"] = "false"
+        fields["team_view"] = "false"
+      end
       return unless unprotected?
       rate_check!(req)
       fields["visibility"] = "public"
       fields["emails"] = ""
-      fields["team_meta"] = "false"
-      fields["team_view"] = "false"
     end
 
     private def rate_check!(req : Req)
@@ -379,7 +383,7 @@ module Clpaste
         "max_views" => default_max_views_str("public"),
         "ttl_hours" => Superconf.default_ttl_hours > 0 ? Superconf.default_ttl_hours.to_s.sub(/\.0$/, "") : "",
         "max_failures" => Superconf.default_max_failures > 0 ? Superconf.default_max_failures.to_s : "",
-        "cli_only" => false, "team_meta" => Superconf.default_team_meta && !unprotected?, "team_view" => false, "log_ips" => false,
+        "cli_only" => false, "team_meta" => Superconf.default_team_meta && !Config.plain_users?, "team_view" => false, "log_ips" => false,
       }
     end
 
@@ -437,7 +441,7 @@ module Clpaste
         Log.warn(exception: e) { "OIDC exchange failed" }
         return message(req, "Login failed", e.message.to_s, 502, "danger")
       end
-      admin = Config.admin_emails.includes?(user.email) || OIDC.claim_match?(Superconf.admin_claim, user.claims)
+      admin = Config.admin?(user.email, user.claims)
       s = @repo.create_session("web", user.email, user.name, admin, Superconf.session_ttl, req.ua.to_s[0, 60])
       req.response.cookies << HTTP::Cookie.new(COOKIE, s.id, path: "/", http_only: true, secure: req.https?,
         samesite: HTTP::Cookie::SameSite::Lax, expires: s.expires_at)
@@ -522,7 +526,7 @@ module Clpaste
       # HTML checkboxes are simply absent when unchecked. PIN/password are plain
       # fields: empty means off (input_from handles that when *_enabled is absent).
       %w[cli_only team_meta team_view log_ips].each { |k| fields[k] = fields[k]? || "false" }
-      restrict_unprotected!(req, fields)
+      restrict_fields!(req, fields)
       begin
         input, _ = input_from(fields, files)
         c = @svc.create(input, id, req.service_request)
@@ -820,7 +824,7 @@ module Clpaste
     private def api_create(req : Req)
       id = creator_for(req) || return json_error(req.ctx, "need_login", "Login required (run `clpaste login`)")
       fields, files = parse_form(req)
-      restrict_unprotected!(req, fields)
+      restrict_fields!(req, fields)
       input, _ = input_from(fields, files)
       c = @svc.create(input, id, req.service_request)
       v = created_vars(req, c)

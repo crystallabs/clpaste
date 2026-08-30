@@ -149,6 +149,10 @@ Notable ones:
 * `unprotected` — anyone may create *public* pastes without signing in;
   Private/Team options disappear; `/pastes`, paste details and manual
   expiry require an admin. Anonymous creation is rate limited like retrieval.
+* `admin_emails` / `admin_domains` / `admin_claim` — who gets the admin role
+  on OIDC login (any rule suffices). With `admin_domains` set, every other
+  signed-in user is a *plain user*: they may create pastes and retrieve them
+  like any visitor, but the team options and the `/pastes` pages are gone.
 * `default_max_views_public` / `_private` (`1` / unlimited),
   `default_ttl_hours` (`24`), `default_pin` (on), `default_max_failures`
   (`5`) — what the form and CLI start with.
@@ -175,7 +179,9 @@ Notable ones:
   counter — per `(paste, IP)` if the paste logs IPs, per paste otherwise —
   and expires the paste when it reaches the paste's limit.
 * **Team views** (`/pastes/ID/view`) and **admin views** (`/pastes/ID/admin-view`) are
-  logged but not counted. Team members are everyone who can log in; a
+  logged but not counted. Team members are everyone who can log in —
+  unless `admin_domains` is set, in which case there is no team (plain
+  users only create and retrieve) and these views are admin-only; a
   paste's creator always sees their own pastes; other members see a paste
   in `/pastes` only if "team can see metadata" is on, and its content only if
   "team can view" is on.
@@ -247,6 +253,7 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --dump-config [FORMAT]   Print the effective configuration (yaml|json|env|pretty|report) and exit
 
   --admin-claim VALUE                           CLPASTE_ADMIN_CLAIM                Alternative admin rule: CLAIM=VALUE (e.g. groups=clpaste-admins); matched against id_token/userinfo [default: empty]
+  --admin-domains VALUE                         CLPASTE_ADMIN_DOMAINS              Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like anyone else, but get no team pages [default: empty]
   --admin-emails VALUE                          CLPASTE_ADMIN_EMAILS               Comma-separated emails with admin rights [default: empty]
   --admin-password VALUE                        CLPASTE_ADMIN_PASSWORD             HTTP basic-auth admin password (enables basic auth; auto-generated and printed at startup when OIDC is not configured) [default: empty]
   --admin-user VALUE                            CLPASTE_ADMIN_USER                 HTTP basic-auth admin user [default: admin]

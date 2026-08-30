@@ -1,4 +1,5 @@
 require "superconf"
+require "json"
 
 # All tunables. Each becomes: config-file key, env var (CLPASTE_<KEY>),
 # CLI flag (--key) and a typed accessor (Superconf.key).
@@ -34,6 +35,7 @@ module Superconf
   option "oidc.scopes", "openid email profile", description: "OIDC scopes"
   option "oidc.auth_method", "basic", description: "Token endpoint auth: basic|post"
   option "admin_emails", "", description: "Comma-separated emails with admin rights"
+  option "admin_domains", "", description: "Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like anyone else, but get no team pages"
   option "admin_claim", "", description: "Alternative admin rule: CLAIM=VALUE (e.g. groups=clpaste-admins); matched against id_token/userinfo"
 
   # --- paste defaults & limits ---------------------------------------------
@@ -85,6 +87,27 @@ module Clpaste
 
     def self.admin_emails : Array(String)
       list(Superconf.admin_emails).map(&.downcase)
+    end
+
+    def self.admin_domains : Array(String)
+      list(Superconf.admin_domains).map(&.downcase.lstrip('@'))
+    end
+
+    # Admin rules for OIDC users, any of which suffices: listed email, listed
+    # email domain, or a matching claim.
+    def self.admin?(email : String, claims : JSON::Any) : Bool
+      email = email.downcase
+      domain = email.partition('@')[2]
+      admin_emails.includes?(email) ||
+        (!domain.empty? && admin_domains.includes?(domain)) ||
+        OIDC.claim_match?(Superconf.admin_claim, claims)
+    end
+
+    # Are signed-in non-admins plain users (paste form only) rather than team
+    # members with the pastes list and team views? Yes in unprotected mode and
+    # whenever admin_domains draws the admin/user line.
+    def self.plain_users? : Bool
+      Superconf.unprotected || !admin_domains.empty?
     end
 
     # Configured public URL override, or nil when it is to be derived from

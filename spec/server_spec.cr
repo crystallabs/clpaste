@@ -371,6 +371,40 @@ describe Clpaste::Server do
     Superconf.admin_password = ""
   end
 
+  it "makes admins by email domain and turns everyone else into plain users" do
+    Superconf.admin_domains = "Example.ORG, @corp.example"
+    idp.groups = [] of String
+    idp.email = "dave@example.org"
+    root = Browser.new(base)
+    root.login
+    root.get("/pastes").body.should contain("All pastes on this server")
+    # Same domain rule for the CLI token path.
+    idp.email = "erin@corp.example"
+    Browser.new(base).login.headers["Set-Cookie"].should_not be_nil
+    idp.email = "carol@example.com"
+    user = Browser.new(base)
+    user.login
+    form = user.get("/")
+    form.status_code.should eq(200)
+    form.body.should contain("Create paste")
+    form.body.should contain(%(id="vis_private")) # visibility still theirs to choose
+    form.body.should_not contain(%(name="team_meta"))
+    form.body.should_not contain(%(href="/pastes"))
+    r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "team_view" => "true", "pin" => "", "max_views" => "0"})
+    r.status_code.should eq(200)
+    id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
+    user.get("/pastes").status_code.should eq(403)
+    user.get("/pastes/#{id}").status_code.should eq(403)
+    user.get("/pastes/#{id}/view").status_code.should eq(403)
+    user.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(403)
+    user.get("/p/#{id}").body.should contain("plain") # retrieves like any visitor
+    det = root.get("/pastes/#{id}")
+    det.body.should contain("carol@example.com")
+    det.body.should contain("Team can see metadata</th><td>no</td>") # team flags sent by the form were dropped
+    det.body.should contain("Team can view content</th><td>no</td>")
+    Superconf.admin_domains = ""
+  end
+
   it "shuts down" do
     http.close
     idp.close
