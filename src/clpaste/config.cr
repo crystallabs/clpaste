@@ -49,7 +49,7 @@ module Superconf
   option "max_attachment_size", 100_i64 * 1024 * 1024, description: "Maximum size of a single attachment in bytes"
   option "max_body_size", 100_i64 * 1024 * 1024, description: "Maximum total size of one paste in bytes (text + all attachments)"
   option "max_attachments", 10, description: "Maximum number of attachments per paste"
-  option "rate_limit", 30, description: "Max retrieval attempts per client IP per minute"
+  option "rate_limit", 10, description: "Max retrieval attempts per client IP per minute for non-admins (admins are exempt; 0 = unlimited)"
   option "sweep_interval", 1.hour, description: "How often expired pastes are purged"
   option "ticket_ttl", 10.minutes, description: "How long attachment download links stay valid after a successful web retrieval"
   option "session_ttl", 12.hours, description: "Web session lifetime"

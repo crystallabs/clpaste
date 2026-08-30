@@ -187,7 +187,8 @@ Notable ones:
   counter — per `(paste, IP)` if the paste logs IPs, per paste otherwise —
   and expires the paste when it reaches the paste's limit. Every retrieval
   attempt — web or API, valid ID or not — counts against `rate_limit`
-  (per client IP per minute), so the ID space cannot be scanned.
+  (per client IP per minute, default 10; admins are exempt), so the ID
+  space cannot be scanned.
 * **Peeks** (`/pastes/ID/view`) and **admin peeks** (`/pastes/ID/admin-view`) show
   the content without counting a retrieval; they are logged. The team is every user and admin who can log in —
   unless `admin_domains` is set, in which case there is no team (plain
@@ -295,7 +296,7 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --oidc-issuer VALUE                           CLPASTE_OIDC_ISSUER                OIDC issuer URL (discovery at ISSUER/.well-known/openid-configuration) [default: empty]
   --oidc-scopes VALUE                           CLPASTE_OIDC_SCOPES                OIDC scopes [default: openid email profile]
   --port VALUE                                  CLPASTE_PORT                       Port to listen on [default: 8080]
-  --rate-limit VALUE                            CLPASTE_RATE_LIMIT                 Max retrieval attempts per client IP per minute [default: 30]
+  --rate-limit VALUE                            CLPASTE_RATE_LIMIT                 Max retrieval attempts per client IP per minute for non-admins (admins are exempt; 0 = unlimited) [default: 10]
   --server VALUE                                CLPASTE_SERVER                     (CLI) Server URL; defaults to the one saved by `clpaste login` [default: empty]
   --session-ttl VALUE                           CLPASTE_SESSION_TTL                Web session lifetime [default: 43200]
   --show-meta / --no-show-meta                  CLPASTE_SHOW_META                  Tell retrievers who a paste is from and since when, and why/when an expired paste expired [default: true]

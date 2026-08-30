@@ -346,6 +346,7 @@ module Clpaste
     end
 
     private def rate_check!(req : Req)
+      return if req.identity.try(&.admin?) # admins are exempt
       limit = Superconf.rate_limit
       return if limit <= 0
       @state_lock.synchronize do

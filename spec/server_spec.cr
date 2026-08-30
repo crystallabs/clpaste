@@ -513,7 +513,7 @@ describe Clpaste::Server do
     end
   end
 
-  it "rate limits web retrieval attempts so IDs cannot be scanned" do
+  it "rate limits non-admin retrieval attempts so IDs cannot be scanned" do
     b = Browser.new(base)
     begin
       Superconf.rate_limit = 3
@@ -521,8 +521,15 @@ describe Clpaste::Server do
       r = b.get("/p/000000002")
       r.status_code.should eq(429)
       r.body.should contain("Slow down")
+      # Admins are exempt: same IP, same minute, still served.
+      idp.email = "root@example.com"
+      idp.groups = ["clpaste-admins"]
+      root = Browser.new(base)
+      root.login
+      root.get("/p/000000002").status_code.should eq(404)
     ensure
       Superconf.rate_limit = 1000
+      idp.groups = [] of String
     end
   end
 
