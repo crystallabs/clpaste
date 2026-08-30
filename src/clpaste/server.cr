@@ -695,11 +695,11 @@ module Clpaste
         ["Title", meta.title || "—"], ["Access permissions", meta.visibility], ["Creator", meta.creator],
         ["Created", fmt_time(meta.created_at)], ["Expires", fmt_time(meta.expires_at)],
       ]
+      settings << ["Views", meta.max_views ? "#{meta.views} of #{meta.max_views}" : "#{meta.views} (unlimited)"]
       if meta.expired?
         settings << ["Expired", "#{fmt_time(meta.expired_at)} (#{meta.expiry_reason})"]
       else
         settings.concat [
-          ["Views", meta.max_views ? "#{meta.views} of #{meta.max_views}" : "#{meta.views} (unlimited)"],
           ["PIN", meta.pin? ? "yes" : "no"], ["Password", meta.password? ? "yes" : "no"],
           ["Allowed emails", meta.emails.empty? ? (meta.public? ? "n/a (public)" : "all members") : meta.emails.join(", ")],
           ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],

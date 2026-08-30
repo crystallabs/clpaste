@@ -61,13 +61,16 @@ module Clpaste
       (e = expires_at) ? (e - now) : nil
     end
 
-    # What survives expiry: enough to attribute the log and to decide
-    # who may see it.
+    # What survives expiry: enough to attribute the log, decide who may
+    # see it, and show how the paste was used. No secrets or key material.
     def residual(reason : String, now = Time.utc) : Meta
       r = Meta.new
       r.visibility = visibility
+      r.title = title
       r.creator = creator
       r.created_at = created_at
+      r.max_views = max_views
+      r.views = views
       r.team_meta = team_meta?
       r.log_ips = log_ips?
       r.expired_at = now

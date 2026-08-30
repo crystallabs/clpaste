@@ -29,6 +29,9 @@ describe Clpaste::Service do
     meta.expiry_reason.should eq("view limit reached")
     meta.creator.should eq("alice@example.com")
     meta.key_wrap.should eq("") # residual only
+    meta.views.should eq(2)     # usage survives expiry
+    meta.max_views.should eq(2)
+    meta.title.should eq("T")
 
     actions = svc.repo.log_for(c.id).map(&.action)
     actions.should eq(["created", "denied", "view", "view", "expired", "denied"])
