@@ -21,29 +21,36 @@
   </div>
   <div class="col-lg-5">
     {% if unprotected %}
-    <input type="hidden" name="visibility" value="public">
-    <p class="text-secondary form-text-sm">Pastes on this server are public: anyone with the ID can retrieve them, subject to the protection you set below.</p>
+    <input type="hidden" name="visibility" value="guests">
+    <p class="text-secondary form-text-sm">Pastes on this server are guest pastes: anyone with the ID can retrieve them, subject to the protection you set below.</p>
     {% else %}
     <div class="card mb-3"><div class="card-body">
       <h2 class="h6">Visibility</h2>
       <div class="row g-2">
-        <div class="col-6">
-          <label class="vis-tile" for="vis_public">
-            <input class="form-check-input" type="radio" name="visibility" value="public" id="vis_public" {% if f.visibility != 'private' %}checked{% endif %}>
-            <strong>Public</strong>
-            <span class="d-block text-secondary form-text-sm">For customers. No login needed — protect with a PIN or password.</span>
+        <div class="col-4">
+          <label class="vis-tile" for="vis_guests">
+            <input class="form-check-input" type="radio" name="visibility" value="guests" id="vis_guests" {% if f.visibility != 'users' and f.visibility != 'admins' %}checked{% endif %}>
+            <strong>Guests</strong>
+            <span class="d-block text-secondary form-text-sm">No login needed — protected only by a PIN, password, or other options.</span>
           </label>
         </div>
-        <div class="col-6">
-          <label class="vis-tile" for="vis_private">
-            <input class="form-check-input" type="radio" name="visibility" value="private" id="vis_private" {% if f.visibility == 'private' %}checked{% endif %}>
-            <strong>Private</strong>
-            <span class="d-block text-secondary form-text-sm">For the team. Retrieval requires signing in.</span>
+        <div class="col-4">
+          <label class="vis-tile" for="vis_users">
+            <input class="form-check-input" type="radio" name="visibility" value="users" id="vis_users" {% if f.visibility == 'users' %}checked{% endif %}>
+            <strong>Users</strong>
+            <span class="d-block text-secondary form-text-sm">All the options + a logged-in user.</span>
+          </label>
+        </div>
+        <div class="col-4">
+          <label class="vis-tile" for="vis_admins">
+            <input class="form-check-input" type="radio" name="visibility" value="admins" id="vis_admins" {% if f.visibility == 'admins' %}checked{% endif %}>
+            <strong>Admins</strong>
+            <span class="d-block text-secondary form-text-sm">All the options + admin status.</span>
           </label>
         </div>
       </div>
       <div class="mt-2" id="emails_row">
-        <label class="form-label form-text-sm mb-0" for="emails">Limit to these members <span class="text-secondary">(private only; empty = all members)</span></label>
+        <label class="form-label form-text-sm mb-0" for="emails">Restrict to these emails <span class="text-secondary">(empty = unrestricted)</span></label>
         <input class="form-control form-control-sm" name="emails" id="emails" value="{{ f.emails }}" placeholder="E.g. alice@example.com bob@example.com">
       </div>
     </div></div>
@@ -118,16 +125,16 @@
       </div>
     </div></div>
 
-    {% if team %}
+    {% if team or (user and user.admin) %}
     <div class="card mb-3"><div class="card-body">
       <h2 class="h6">Team</h2>
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="team_meta" id="team_meta" {% if f.team_meta %}checked{% endif %}>
-        <label class="form-check-label" for="team_meta">Team members can see metadata &amp; access log</label>
+        <label class="form-check-label" for="team_meta">Users can see metadata &amp; audit log</label>
       </div>
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
-        <label class="form-check-label" for="team_view">Team members can view the paste itself <span class="text-secondary form-text-sm">(not counted, but logged)</span></label>
+        <label class="form-check-label" for="team_view">Users can view the paste itself <span class="text-secondary form-text-sm">(not counted, but logged)</span></label>
       </div>
     </div></div>
     {% endif %}
@@ -160,19 +167,21 @@
   });
   (function(){
     var mv = document.getElementById('max_views'), emails = document.getElementById('emails');
-    var pub = document.getElementById('vis_public'), priv = document.getElementById('vis_private');
-    if (!pub || !priv) return; // unprotected mode: no visibility choice
-    function def(v){ return mv.getAttribute('data-default-' + v); }
-    var current = pub.checked ? 'public' : 'private';
+    var radios = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"][name="visibility"]'));
+    if (!radios.length) return; // unprotected mode: no visibility choice
+    // Guest pastes take the "public" retrieval-limit default; Users/Admins the "private" one.
+    function grp(){ var c = radios.filter(function(r){ return r.checked; })[0]; return c && c.value === 'guests' ? 'public' : 'private'; }
+    function def(g){ return mv.getAttribute('data-default-' + g); }
+    var current = grp();
     function onChange(){
-      var next = pub.checked ? 'public' : 'private';
-      emails.disabled = pub.checked;
+      var next = grp();
+      emails.disabled = next === 'public'; // email restriction needs signed-in retrievers
       // Only replace the retrieval limit if the user has not edited it.
       if (mv.value === def(current)) mv.value = def(next);
       current = next;
     }
-    pub.addEventListener('change', onChange); priv.addEventListener('change', onChange);
-    emails.disabled = pub.checked;
+    radios.forEach(function(r){ r.addEventListener('change', onChange); });
+    emails.disabled = grp() === 'public';
   })();
 </script>
 {% endblock %}

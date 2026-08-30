@@ -7,7 +7,7 @@ module Clpaste
   class Meta
     include JSON::Serializable
 
-    property visibility : String = "private" # private | public
+    property visibility : String = "users" # guests | users | admins ("public"/"private" are legacy aliases)
     property title : String? = nil
     property creator : String = ""
     property created_at : Time = Time.utc
@@ -41,8 +41,28 @@ module Clpaste
       !password_salt.nil?
     end
 
+    # Canonical audience: guests | users | admins. Accepts the legacy
+    # "public"/"private" values still stored in older pastes; anything
+    # unrecognised falls back to "users" (the safe middle).
+    def self.audience(v : String?) : String
+      case v
+      when "public", "guests" then "guests"
+      when "admin", "admins"  then "admins"
+      else                         "users"
+      end
+    end
+
+    def audience : String
+      Meta.audience(visibility)
+    end
+
+    # No login needed to retrieve.
     def public? : Bool
-      visibility == "public"
+      audience == "guests"
+    end
+
+    def admins_only? : Bool
+      audience == "admins"
     end
 
     def expired? : Bool
@@ -81,7 +101,7 @@ module Clpaste
     # Short protection summary for lists.
     def flags : Array(String)
       f = [] of String
-      f << (public? ? "public" : "private")
+      f << audience
       f << "pin" if pin?
       f << "password" if password?
       f << "emails" unless emails.empty?

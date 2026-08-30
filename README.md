@@ -6,8 +6,11 @@ Creating pastes and the admin pages require signing in — through your OIDC
 provider, or with the HTTP basic-auth admin account (the default when no
 OIDC is configured). Retrieval is open to anyone, subject to whatever
 restrictions the author put on the paste. Every option you set tightens
-access; nothing loosens it. With `--unprotected` anyone may create public
+access; nothing loosens it. With `--unprotected` guests may create public
 pastes without signing in; only the admin pages stay behind a login.
+
+People fall into three categories: **admins**, **users** (signed in, not
+admins) and **guests** (not signed in).
 
 ![New paste](screenshots/new-paste.png)
 ![Pastes](screenshots/pastes.png)
@@ -16,17 +19,19 @@ pastes without signing in; only the admin pages stay behind a login.
 * **Web UI** (clean Bootstrap page, light/dark) and a **CLI** (`clpaste put` /
   `clpaste get`) that authenticates gcloud-style (`clpaste login` once).
 * **Per-paste protection:** PIN (default on), password, max retrievals,
-  expiry time, OIDC login with optional email allowlist, IP/CIDR allowlist,
-  CLI-only, expiry after N failed attempts.
-* **Team options:** team members may see a paste's metadata & access log,
+  expiry time, guest/user/admin visibility with an optional email
+  restriction, IP/CIDR allowlist, CLI-only, expiry after N failed attempts.
+* **Team options:** users may see a paste's metadata & audit log,
   and/or view the paste itself without consuming a retrieval (logged).
 * **Audit log** of who retrieved what and when (identity from OIDC when
   available; IPs only if the author opted in). The log outlives the paste.
 * **Expiry** immediately when a limit is hit, plus an hourly sweep
   for time-expired pastes. Retrievers are told what remains or that it is gone.
-* **Pastes page:** members see their own and team-shared pastes with protection
-  badges; admins see every paste, and get view-as-admin / view-as-guest /
-  expire-now on the per-paste settings + log page.
+* **Pastes page:** users see their own and team-shared pastes with protection
+  badges; admins see every paste, get peek-as-admin / view-as-guest /
+  expire-now on the per-paste settings + log page. The navbar ID box says
+  View and opens the paste; for admins it says Find and jumps to the
+  paste's settings + log page.
 * **Encrypted at rest:** AES-256-GCM envelope encryption; password-protected
   pastes wrap their key with the password, so admins cannot read them.
 * SQLite or PostgreSQL. All settings via env vars / flags / config file.
@@ -45,7 +50,7 @@ generated into `./clpaste.key` (back it up), and — since no OIDC provider is
 configured — an `admin` user with a random password printed at startup
 (HTTP basic auth; set `CLPASTE_ADMIN_PASSWORD` to make it permanent). The
 browser prompts for it on the paste form and the admin pages; retrieving a
-paste needs no login. Add `--unprotected` to let anyone create public
+paste needs no login. Add `--unprotected` to let guests create public
 pastes.
 
 Production, with your identity provider:
@@ -116,10 +121,10 @@ closed — there is no server-side logout for them.
 clpaste login --server https://paste.example.com   # opens the browser; --no-browser prints a URL + asks for a code
 clpaste whoami
 
-echo "secret" | clpaste put                        # public, PIN on, 24h, 1 retrieval (server defaults; private defaults to unlimited)
+echo "secret" | clpaste put                        # guests, PIN on, 24h, 1 retrieval (server defaults; users/admins default to unlimited)
 clpaste put report.pdf notes.txt --text "see attached" --views 1 --ttl 2
-clpaste put --public --pin 4321 --password hunter2 --ips "203.0.113.0/24 198.51.100.7" --cli-only --max-failures 3
-clpaste put --private --emails bob@example.com,eve@example.com --team-meta --team-view --log-ips
+clpaste put --guests --pin 4321 --password hunter2 --ips "203.0.113.0/24 198.51.100.7" --cli-only --max-failures 3
+clpaste put --users --emails bob@example.com,eve@example.com --team-meta --team-view --log-ips
 clpaste put --json ...                             # machine-readable {id, id_fmt, url, pin, ...}
 
 clpaste get 123-456-789                          # prompts for PIN/password if needed; text -> stdout,
@@ -127,7 +132,7 @@ clpaste get 123456789 --pin 4321 -o ./downloads   # attachments -> files, status
 clpaste logout
 ```
 
-Public pastes need no login to `get`. Retrieval with plain `curl`:
+Guest pastes need no login to `get`. Retrieval with plain `curl`:
 
 ```sh
 curl -H 'X-Clpaste-Pin: 4321' https://paste.example.com/api/pastes/123456789
@@ -146,19 +151,22 @@ Notable ones:
 
 * `master_key` / `key_file` — the 32-byte key everything is encrypted with.
   **Losing it loses every paste.** Generate with `clpaste keygen`.
-* `unprotected` — anyone may create *public* pastes without signing in;
+* `unprotected` — guests may create *public* pastes without signing in;
   Private/Team options disappear; `/pastes`, paste details and manual
-  expiry require an admin. Anonymous creation is rate limited like retrieval.
+  expiry require an admin. Guest creation is rate limited like retrieval.
 * `admin_emails` / `admin_domains` / `admin_claim` — who gets the admin role
   on OIDC login (any rule suffices). With `admin_domains` set, every other
   signed-in user is a *plain user*: they may create pastes and retrieve them
-  like any visitor, but the team options and the `/pastes` pages are gone.
+  like any guest, but the team options and the `/pastes` pages are gone.
 * `default_max_views_public` / `_private` (`1` / unlimited),
   `default_ttl_hours` (`24`), `default_pin` (on), `default_max_failures`
-  (`5`) — what the form and CLI start with.
+  (`3`) — what the form and CLI start with.
 * `base_url` — normally empty (derived from the request); `trusted_proxies`
   — CIDRs whose `X-Forwarded-*` headers are honoured.
 * `theme_dir` — override templates and static files at runtime.
+* `show_meta` (on) — retrievers are told who a paste is from and since when,
+  and expired pastes say why and when they expired; off makes both generic.
+* `show_version` (on) — print the clpaste version in the page footer.
 
 ## How it works
 
@@ -173,18 +181,23 @@ Notable ones:
   included. Only `state` and `expires_at` are queryable; everything else is
   parsed in the app, so SQLite and PostgreSQL behave identically.
 * **Retrieval** (`/p/ID`, `/api/pastes/ID`) checks, in order: already expired?
-  past its time limit? CLI-only? IP allowed? login/email required? PIN? password? Then
+  past its time limit? CLI-only? IP allowed? login/admin/email required? PIN? password? Then
   the view is counted, the paste expires if the limit is reached, and
   the retriever is told what remains. Wrong PIN/password bumps a failure
   counter — per `(paste, IP)` if the paste logs IPs, per paste otherwise —
-  and expires the paste when it reaches the paste's limit.
-* **Team views** (`/pastes/ID/view`) and **admin views** (`/pastes/ID/admin-view`) are
-  logged but not counted. Team members are everyone who can log in —
+  and expires the paste when it reaches the paste's limit. Every retrieval
+  attempt — web or API, valid ID or not — counts against `rate_limit`
+  (per client IP per minute), so the ID space cannot be scanned.
+* **Peeks** (`/pastes/ID/view`) and **admin peeks** (`/pastes/ID/admin-view`) show
+  the content without counting a retrieval; they are logged. The team is every user and admin who can log in —
   unless `admin_domains` is set, in which case there is no team (plain
-  users only create and retrieve) and these views are admin-only; a
-  paste's creator always sees their own pastes; other members see a paste
+  users only create and retrieve) and these views — and setting the team
+  options on a new paste — are admin-only; a
+  paste's creator always sees their own pastes; other users see a paste
   in `/pastes` only if "team can see metadata" is on, and its content only if
-  "team can view" is on.
+  "team can view" is on. (Audit rows written before 0.2.0 use the old
+  action names `team_meta`/`team_view` and creator `anonymous` instead of
+  `user_meta`/`user_view` and `guest`.)
 * **Expiry** deletes the body, the wrapped key and all settings; what
   remains is the creator, timestamps, the reason, the team-metadata flag
   (to gate the log) and the log itself. Later access attempts are logged
@@ -230,7 +243,7 @@ AGPL-3.0 — see [LICENSE](LICENSE).
 ## Reference: `clpaste --help`
 
 ```
-clpaste 0.1.0 — encrypted paste service
+clpaste 0.2.0 — encrypted paste service
 
 Usage: clpaste <command> [options]
 
@@ -253,7 +266,7 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --dump-config [FORMAT]   Print the effective configuration (yaml|json|env|pretty|report) and exit
 
   --admin-claim VALUE                           CLPASTE_ADMIN_CLAIM                Alternative admin rule: CLAIM=VALUE (e.g. groups=clpaste-admins); matched against id_token/userinfo [default: empty]
-  --admin-domains VALUE                         CLPASTE_ADMIN_DOMAINS              Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like anyone else, but get no team pages [default: empty]
+  --admin-domains VALUE                         CLPASTE_ADMIN_DOMAINS              Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like guests, but get no team pages [default: empty]
   --admin-emails VALUE                          CLPASTE_ADMIN_EMAILS               Comma-separated emails with admin rights [default: empty]
   --admin-password VALUE                        CLPASTE_ADMIN_PASSWORD             HTTP basic-auth admin password (enables basic auth; auto-generated and printed at startup when OIDC is not configured) [default: empty]
   --admin-user VALUE                            CLPASTE_ADMIN_USER                 HTTP basic-auth admin user [default: admin]
@@ -263,11 +276,11 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --color-mode VALUE                            CLPASTE_COLOR_MODE                 Bootstrap color mode: auto|light|dark [default: auto]
   --credentials-file VALUE                      CLPASTE_CREDENTIALS_FILE           (CLI) Path of the credentials file (default ~/.config/clpaste/credentials.json) [default: empty]
   --db-url VALUE                                CLPASTE_DB_URL                     Database URL (sqlite3://PATH or postgres://user:pass@host/db). Empty = PostgreSQL from PG*/POSTGRES_* vars if any are set, else sqlite3://./clpaste.db [default: empty]
-  --default-max-failures VALUE                  CLPASTE_DEFAULT_MAX_FAILURES       Default number of failed PIN/password attempts before expiry (0 = unlimited) [default: 5]
-  --default-max-views-private VALUE             CLPASTE_DEFAULT_MAX_VIEWS_PRIVATE  Default maximum retrievals for private pastes (0 = unlimited) [default: 0]
-  --default-max-views-public VALUE              CLPASTE_DEFAULT_MAX_VIEWS_PUBLIC   Default maximum retrievals for public pastes (0 = unlimited) [default: 1]
+  --default-max-failures VALUE                  CLPASTE_DEFAULT_MAX_FAILURES       Default number of failed PIN/password attempts before expiry (0 = unlimited) [default: 3]
+  --default-max-views-private VALUE             CLPASTE_DEFAULT_MAX_VIEWS_PRIVATE  Default maximum retrievals for user/admin pastes (0 = unlimited) [default: 0]
+  --default-max-views-public VALUE              CLPASTE_DEFAULT_MAX_VIEWS_PUBLIC   Default maximum retrievals for guest (no-login) pastes (0 = unlimited) [default: 1]
   --default-pin / --no-default-pin              CLPASTE_DEFAULT_PIN                Whether the PIN option is on by default in the form [default: true]
-  --default-team-meta / --no-default-team-meta  CLPASTE_DEFAULT_TEAM_META          Whether 'team members can see metadata & access log' is on by default [default: true]
+  --default-team-meta / --no-default-team-meta  CLPASTE_DEFAULT_TEAM_META          Whether 'users can see metadata & audit log' is on by default [default: true]
   --default-ttl-hours VALUE                     CLPASTE_DEFAULT_TTL_HOURS          Default expiry in hours (0 = never) [default: 24.0]
   --id-digits VALUE                             CLPASTE_ID_DIGITS                  Number of decimal digits in paste IDs [default: 9]
   --key-file VALUE                              CLPASTE_KEY_FILE                   Where the master key is stored/generated when master_key is not set [default: clpaste.key]
@@ -285,13 +298,15 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --rate-limit VALUE                            CLPASTE_RATE_LIMIT                 Max retrieval attempts per client IP per minute [default: 30]
   --server VALUE                                CLPASTE_SERVER                     (CLI) Server URL; defaults to the one saved by `clpaste login` [default: empty]
   --session-ttl VALUE                           CLPASTE_SESSION_TTL                Web session lifetime [default: 43200]
+  --show-meta / --no-show-meta                  CLPASTE_SHOW_META                  Tell retrievers who a paste is from and since when, and why/when an expired paste expired [default: true]
+  --show-version / --no-show-version            CLPASTE_SHOW_VERSION               Show the clpaste version in the page footer [default: true]
   --site-name VALUE                             CLPASTE_SITE_NAME                  Site name shown in the UI [default: clpaste]
   --sweep-interval VALUE                        CLPASTE_SWEEP_INTERVAL             How often expired pastes are purged [default: 3600]
   --theme-dir VALUE                             CLPASTE_THEME_DIR                  Directory overriding built-in templates (*.html) and static files (static/*) [default: empty]
   --ticket-ttl VALUE                            CLPASTE_TICKET_TTL                 How long attachment download links stay valid after a successful web retrieval [default: 600]
   --token-ttl VALUE                             CLPASTE_TOKEN_TTL                  CLI token lifetime [default: 7776000]
   --trusted-proxies VALUE                       CLPASTE_TRUSTED_PROXIES            Comma-separated IPs/CIDRs whose X-Forwarded-For is trusted [default: empty]
-  --unprotected / --no-unprotected              CLPASTE_UNPROTECTED                Anyone can create public pastes without signing in; private/team features are hidden and listing pastes requires an admin [default: false]
+  --unprotected / --no-unprotected              CLPASTE_UNPROTECTED                Guests can create public pastes without signing in; private/team features are hidden and listing pastes requires an admin [default: false]
   --pg-database VALUE                           PGDATABASE                         Database name (default clpaste); created if missing [default: empty]
   --pg-host VALUE                               PGHOST                             PostgreSQL host, or socket directory when it starts with / (default /var/run/postgresql) [default: empty]
   --pg-port VALUE                               PGPORT                             PostgreSQL port [default: 5432]
@@ -307,9 +322,12 @@ Text is read from stdin unless --text is given.
     -t, --text TEXT                  Paste text (instead of stdin)
     --no-text                        Attach files only, don't read stdin
     --title T                        Title
-    --public                         Public paste (no login needed to retrieve; default)
-    --private                        Private paste (OIDC login needed)
-    --emails LIST                    Private only: allowed emails, comma-separated
+    --guests                         Guest paste: no login needed to retrieve (default)
+    --users                          Retrieval requires a signed-in user
+    --admins                         Retrieval requires an admin
+    --public                         Alias for --guests
+    --private                        Alias for --users
+    --emails LIST                    Users/Admins only: restrict to these emails, comma-separated (empty = unrestricted)
     --ips LIST                       Allowed IPs/CIDRs, space-separated (quote the list)
     --pin PIN                        PIN (4-8 digits; default: random 4-digit PIN)
     --no-pin                         Disable PIN
@@ -318,10 +336,10 @@ Text is read from stdin unless --text is given.
     --ttl HOURS                      Expiry in hours (0 = never; default from server)
     --max-failures N                 Max retrieval (PIN/password) failures before expiry (0 = no limit)
     --cli-only                       Retrievable only via CLI
-    --team-meta                      Team members may see metadata & log (server default: on)
-    --no-team-meta                   Hide metadata & log from other team members
-    --team-view                      Team members may view the content (uncounted, logged)
-    --log-ips                        Record viewer IPs in the log
+    --team-meta                      Users may see metadata & audit log (server default: on)
+    --no-team-meta                   Hide metadata & audit log from other users
+    --team-view                      Users may view the content (uncounted, logged)
+    --log-ips                        Record retriever IPs in the audit log
     --json                           Machine-readable output
     -h, --help                       Help
 

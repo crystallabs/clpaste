@@ -13,7 +13,7 @@ module Superconf
   option "master_key", "", description: "32-byte master encryption key, hex (64 chars) or base64. Empty = load/generate key_file."
   option "key_file", "clpaste.key", description: "Where the master key is stored/generated when master_key is not set"
   option "admin_user", "admin", description: "HTTP basic-auth admin user"
-  option "unprotected", false, description: "Anyone can create public pastes without signing in; private/team features are hidden and listing pastes requires an admin"
+  option "unprotected", false, description: "Guests can create public pastes without signing in; private/team features are hidden and listing pastes requires an admin"
   option "admin_password", "", description: "HTTP basic-auth admin password (enables basic auth; auto-generated and printed at startup when OIDC is not configured)"
 
   # --- PostgreSQL (libpq-style variables) ------------------
@@ -35,17 +35,17 @@ module Superconf
   option "oidc.scopes", "openid email profile", description: "OIDC scopes"
   option "oidc.auth_method", "basic", description: "Token endpoint auth: basic|post"
   option "admin_emails", "", description: "Comma-separated emails with admin rights"
-  option "admin_domains", "", description: "Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like anyone else, but get no team pages"
+  option "admin_domains", "", description: "Comma-separated email domains whose users are admins. When set, other signed-in users are plain users: they may create pastes and retrieve them like guests, but get no team pages"
   option "admin_claim", "", description: "Alternative admin rule: CLAIM=VALUE (e.g. groups=clpaste-admins); matched against id_token/userinfo"
 
   # --- paste defaults & limits ---------------------------------------------
   option "id_digits", 9, validate: ->(n : Int32) { n >= 6 && n <= 18 }, description: "Number of decimal digits in paste IDs"
   option "default_ttl_hours", 24.0, description: "Default expiry in hours (0 = never)"
-  option "default_max_views_private", 0, description: "Default maximum retrievals for private pastes (0 = unlimited)"
-  option "default_max_views_public", 1, description: "Default maximum retrievals for public pastes (0 = unlimited)"
-  option "default_team_meta", true, description: "Whether 'team members can see metadata & access log' is on by default"
+  option "default_max_views_private", 0, description: "Default maximum retrievals for user/admin pastes (0 = unlimited)"
+  option "default_max_views_public", 1, description: "Default maximum retrievals for guest (no-login) pastes (0 = unlimited)"
+  option "default_team_meta", true, description: "Whether 'users can see metadata & audit log' is on by default"
   option "default_pin", true, description: "Whether the PIN option is on by default in the form"
-  option "default_max_failures", 5, description: "Default number of failed PIN/password attempts before expiry (0 = unlimited)"
+  option "default_max_failures", 3, description: "Default number of failed PIN/password attempts before expiry (0 = unlimited)"
   option "max_attachment_size", 100_i64 * 1024 * 1024, description: "Maximum size of a single attachment in bytes"
   option "max_body_size", 100_i64 * 1024 * 1024, description: "Maximum total size of one paste in bytes (text + all attachments)"
   option "max_attachments", 10, description: "Maximum number of attachments per paste"
@@ -59,6 +59,8 @@ module Superconf
   # --- theming --------------------------------------------------------------
   option "theme_dir", "", description: "Directory overriding built-in templates (*.html) and static files (static/*)"
   option "color_mode", "auto", description: "Bootstrap color mode: auto|light|dark"
+  option "show_meta", true, description: "Tell retrievers who a paste is from and since when, and why/when an expired paste expired"
+  option "show_version", true, description: "Show the clpaste version in the page footer"
 
   # --- CLI client -----------------------------------------------------------
   option "server", "", description: "(CLI) Server URL; defaults to the one saved by `clpaste login`"
@@ -66,7 +68,7 @@ module Superconf
 end
 
 module Clpaste
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 
   module Config
     # Naming only (needed before printing help); no sources are loaded.
@@ -103,9 +105,9 @@ module Clpaste
         OIDC.claim_match?(Superconf.admin_claim, claims)
     end
 
-    # Are signed-in non-admins plain users (paste form only) rather than team
-    # members with the pastes list and team views? Yes in unprotected mode and
-    # whenever admin_domains draws the admin/user line.
+    # Are signed-in non-admin users plain users (paste form only) rather than
+    # team users with the pastes list and team views? Yes in unprotected mode
+    # and whenever admin_domains draws the admin/user line.
     def self.plain_users? : Bool
       Superconf.unprotected || !admin_domains.empty?
     end

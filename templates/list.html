@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 <h1 class="h4 mb-1">{{ heading }} <span class="badge text-bg-secondary">{{ rows | length }}</span></h1>
-<p class="text-secondary small">{% if admin %}All pastes on this server (you are an admin).{% else %}Your pastes, plus those other members shared with the team.{% endif %} Click a row for settings and the access log.</p>
+<p class="text-secondary small">{% if admin %}All pastes on this server (you are an admin).{% else %}Your pastes, plus those other users shared with the team.{% endif %} Click a row for settings and the audit log.</p>
 {% if rows | length == 0 %}<p class="text-secondary">Nothing to show.</p>{% else %}
 <div class="table-responsive"><table class="table table-hover table-sm align-middle">
   <thead><tr><th>ID</th><th>Title</th><th>Creator</th><th>Created</th><th>Expires</th><th>Views</th><th>Size</th><th>Protection</th><th>State</th></tr></thead>
@@ -15,7 +15,7 @@
     <td class="small">{{ r.expires }}</td>
     <td>{{ r.views }}</td>
     <td class="small">{{ r.size }}</td>
-    <td>{% for fl in r.flags %}<span class="badge text-bg-{% if fl == 'public' %}success{% else %}secondary{% endif %} flag" title="{{ fl }}">{{ fl }}</span> {% endfor %}</td>
+    <td>{% for fl in r.flags %}<span class="badge text-bg-{% if fl == 'guests' %}success{% else %}secondary{% endif %} flag" title="{{ fl }}">{{ fl }}</span> {% endfor %}</td>
     <td>{% if r.expired %}<span class="badge text-bg-dark">expired</span>{% else %}<span class="badge text-bg-success">live</span>{% endif %}</td>
   </tr>
   {% endfor %}

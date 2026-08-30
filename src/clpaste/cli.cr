@@ -250,7 +250,7 @@ module Clpaste
       files = [] of String
       as_json = false
       text_given = false
-      fields["visibility"] = "public"
+      fields["visibility"] = "guests"
       fields["pin_enabled"] = "true"
       fields["password_enabled"] = "false"
       OptionParser.parse(@args) do |parser|
@@ -258,9 +258,12 @@ module Clpaste
         parser.on("-t", "--text TEXT", "Paste text (instead of stdin)") { |v| fields["text"] = v; text_given = true }
         parser.on("--no-text", "Attach files only, don't read stdin") { fields["text"] = ""; text_given = true }
         parser.on("--title T", "Title") { |v| fields["title"] = v }
-        parser.on("--public", "Public paste (no login needed to retrieve; default)") { fields["visibility"] = "public" }
-        parser.on("--private", "Private paste (OIDC login needed)") { fields["visibility"] = "private" }
-        parser.on("--emails LIST", "Private only: allowed emails, comma-separated") { |v| fields["emails"] = v }
+        parser.on("--guests", "Guest paste: no login needed to retrieve (default)") { fields["visibility"] = "guests" }
+        parser.on("--users", "Retrieval requires a signed-in user") { fields["visibility"] = "users" }
+        parser.on("--admins", "Retrieval requires an admin") { fields["visibility"] = "admins" }
+        parser.on("--public", "Alias for --guests") { fields["visibility"] = "guests" }
+        parser.on("--private", "Alias for --users") { fields["visibility"] = "users" }
+        parser.on("--emails LIST", "Users/Admins only: restrict to these emails, comma-separated (empty = unrestricted)") { |v| fields["emails"] = v }
         parser.on("--ips LIST", "Allowed IPs/CIDRs, space-separated (quote the list)") { |v| fields["ips"] = v }
         parser.on("--pin PIN", "PIN (4-8 digits; default: random 4-digit PIN)") { |v| fields["pin"] = v; fields["pin_enabled"] = "true" }
         parser.on("--no-pin", "Disable PIN") { fields["pin_enabled"] = "false" }
@@ -269,10 +272,10 @@ module Clpaste
         parser.on("--ttl HOURS", "Expiry in hours (0 = never; default from server)") { |v| fields["ttl_hours"] = v }
         parser.on("--max-failures N", "Max retrieval (PIN/password) failures before expiry (0 = no limit)") { |v| fields["max_failures"] = v }
         parser.on("--cli-only", "Retrievable only via CLI") { fields["cli_only"] = "true" }
-        parser.on("--team-meta", "Team members may see metadata & log (server default: on)") { fields["team_meta"] = "true" }
-        parser.on("--no-team-meta", "Hide metadata & log from other team members") { fields["team_meta"] = "false" }
-        parser.on("--team-view", "Team members may view the content (uncounted, logged)") { fields["team_view"] = "true" }
-        parser.on("--log-ips", "Record viewer IPs in the log") { fields["log_ips"] = "true" }
+        parser.on("--team-meta", "Users may see metadata & audit log (server default: on)") { fields["team_meta"] = "true" }
+        parser.on("--no-team-meta", "Hide metadata & audit log from other users") { fields["team_meta"] = "false" }
+        parser.on("--team-view", "Users may view the content (uncounted, logged)") { fields["team_view"] = "true" }
+        parser.on("--log-ips", "Record retriever IPs in the audit log") { fields["log_ips"] = "true" }
         parser.on("--json", "Machine-readable output") { as_json = true }
         parser.on("-h", "--help", "Help") { puts parser; exit }
         parser.unknown_args { |rest, _| files = rest }
@@ -367,7 +370,8 @@ module Clpaste
         return
       end
       title = j["title"]?.try(&.as_s?)
-      STDERR.puts "# paste #{j["id_fmt"]} from #{j["creator"]}#{title ? " — #{title}" : ""}"
+      creator = j["creator"]?.try(&.as_s?) # absent when the server hides paste metadata
+      STDERR.puts "# paste #{j["id_fmt"]}#{creator ? " from #{creator}" : ""}#{title ? " — #{title}" : ""}"
       print j["text"].as_s
       files = j["files"].as_a
       unless files.empty? || text_only

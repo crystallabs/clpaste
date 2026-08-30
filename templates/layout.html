@@ -24,15 +24,20 @@
       <li class="nav-item"><a class="nav-link" href="/pastes">Pastes</a></li>
       {% endif %}
     </ul>
-    <form class="d-flex me-3" action="/open" method="get" id="openform">
+    {# Admins jump to a paste's settings page; everyone else views the paste itself. #}
+    <form class="d-flex me-3" action="{% if user and user.admin %}/open{% else %}/view{% endif %}" method="get" id="openform">
       <input class="form-control form-control-sm me-1 mono" name="id" placeholder="Paste ID" size="14" aria-label="Paste ID" autocomplete="off" required>
-      <button class="btn btn-sm btn-outline-secondary" type="submit" disabled>Open</button>
+      <button class="btn btn-sm btn-outline-secondary" type="submit" disabled>{% if user and user.admin %}Find{% else %}View{% endif %}</button>
     </form>
+    {% if user %}
     <span class="navbar-text small">
-      {% if user %}{{ user.email }}{% if user.admin %} <span class="badge text-bg-warning">admin</span>{% endif %}
-        &nbsp;<a href="/logout" class="link-secondary">Logout</a>
-      {% else %}<a href="/login" class="btn btn-sm btn-primary">Login</a>{% endif %}
+      {{ user.email }}{% if user.admin %} <span class="badge text-bg-warning">admin</span>{% endif %}
+      &nbsp;<a href="/logout" class="link-secondary">Logout</a>
     </span>
+    {% else %}
+    {# Outside .navbar-text: Bootstrap's `.navbar-text a` color rule would darken the button label. #}
+    <a href="/login" class="btn btn-sm btn-primary">Sign in</a>
+    {% endif %}
   </div>
 </nav>
 <main class="container mb-5">
@@ -44,6 +49,6 @@
     function chk(){ b.disabled = i.value.replace(/[^0-9]/g,'').length !== {{ id_digits }}; }
     i.addEventListener('input', chk); chk(); })();
 </script>
-<footer class="container text-secondary small mb-4">{{ site_name }} · clpaste {{ version }}</footer>
+<footer class="container text-secondary small mb-4">{{ site_name }}{% if show_version %} · clpaste {{ version }}{% endif %}</footer>
 </body>
 </html>

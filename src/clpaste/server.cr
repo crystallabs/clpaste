@@ -10,7 +10,7 @@ module Clpaste
     COOKIE = "clpaste_session"
 
     # Creator recorded for pastes made without signing in (unprotected mode).
-    ANONYMOUS = Identity.new("anonymous", "Anonymous", false, false)
+    GUEST = Identity.new("guest", "Guest", false, false)
 
     record Pending, nonce : String, next : String, redirect_uri : String, created_at : Time
     record CliCode, challenge : String, email : String, name : String, admin : Bool, created_at : Time
@@ -162,7 +162,8 @@ module Clpaste
       when {"GET", 1, "login", nil, nil, nil}                                                                then login(req)
       when {"GET", 2, "auth", "callback", nil, nil}                                                          then callback(req)
       when {"GET", 1, "logout", nil, nil, nil}, {"POST", 1, "logout", nil, nil, nil}                         then logout(req)
-      when {"GET", 1, "open", nil, nil, nil}                                                                 then open_by_id(req)
+      when {"GET", 1, "open", nil, nil, nil}                                                                 then find_paste(req)
+      when {"GET", 1, "view", nil, nil, nil}                                                                 then view_by_id(req)
       when {"POST", 1, "paste", nil, nil, nil}                                                               then create_web(req)
       when {"GET", 2, "p", String, nil, nil}                                                                 then view_web(req, p[1], nil, nil)
       when {"POST", 2, "p", String, nil, nil}                                                                then view_web_post(req, p[1])
@@ -172,9 +173,9 @@ module Clpaste
       when {"GET", 3, "pastes", String, "view", nil}, {"POST", 3, "pastes", String, "view", nil}             then view_uncounted(req, p[1], admin: false)
       when {"GET", 3, "pastes", String, "admin-view", nil}, {"POST", 3, "pastes", String, "admin-view", nil} then view_uncounted(req, p[1], admin: true)
       when {"POST", 3, "pastes", String, "expire", nil}                                                      then expire(req, p[1])
-        # Legacy/admin entry point: same list; anonymous hits get the basic-auth challenge.
-      when {"GET", 1, "admin", nil, nil, nil}       then (require_member(req); redirect(req, "/pastes"))
-      when {"GET", 2, "admin", String, nil, nil}    then (require_member(req); redirect(req, "/pastes/#{p[1]}"))
+        # Legacy/admin entry point: same list; guest hits get the basic-auth challenge.
+      when {"GET", 1, "admin", nil, nil, nil}       then (require_user(req); redirect(req, "/pastes"))
+      when {"GET", 2, "admin", String, nil, nil}    then (require_user(req); redirect(req, "/pastes/#{p[1]}"))
       when {"GET", 2, "cli", "auth", nil, nil}      then cli_auth(req)
       when {"POST", 2, "cli", "token", nil, nil}    then cli_token(req)
       when {"POST", 2, "api", "pastes", nil, nil}   then api_create(req)
@@ -195,14 +196,16 @@ module Clpaste
     private def base_vars(req : Req?) : Hash(String, Crinja::Value)
       user = req.try(&.identity).try { |i| {"email" => i.email, "name" => i.name, "admin" => i.admin?} }
       Crinja.variables({
-        "site_name"   => Superconf.site_name,
-        "color_mode"  => Superconf.color_mode,
-        "version"     => VERSION,
-        "id_digits"   => Superconf.id_digits,
-        "user"        => user,
-        "oidc"        => @oidc.configured?,
-        "unprotected" => unprotected?,
-        "team"        => !Config.plain_users?,
+        "site_name"    => Superconf.site_name,
+        "color_mode"   => Superconf.color_mode,
+        "version"      => VERSION,
+        "show_meta"    => Superconf.show_meta,
+        "show_version" => Superconf.show_version,
+        "id_digits"    => Superconf.id_digits,
+        "user"         => user,
+        "oidc"         => @oidc.configured?,
+        "unprotected"  => unprotected?,
+        "team"         => !Config.plain_users?,
       })
     end
 
@@ -217,18 +220,18 @@ module Clpaste
       req.response.print @views.render(name, all)
     end
 
-    private def message(ctx : HTTP::Server::Context, heading : String, msg : String, status = 200, kind = "warning")
+    private def message(ctx : HTTP::Server::Context, heading : String, msg : String, status = 200, kind = "warning", home = true)
       all = base_vars(nil)
       # identity for the navbar if we have it cheaply
       all["user"] = Crinja::Value.new(nil)
-      {"heading" => heading, "message" => msg, "kind" => kind}.each { |k, v| all[k] = Crinja::Value.new(v) }
+      {"heading" => heading, "message" => msg, "kind" => kind, "home" => home}.each { |k, v| all[k] = Crinja::Value.new(v) }
       ctx.response.status_code = status
       ctx.response.content_type = "text/html; charset=utf-8"
       ctx.response.print @views.render("message.html", all)
     end
 
-    private def message(req : Req, heading : String, msg : String, status = 200, kind = "warning")
-      render(req, "message.html", {"heading" => heading, "message" => msg, "kind" => kind}, status)
+    private def message(req : Req, heading : String, msg : String, status = 200, kind = "warning", home = true)
+      render(req, "message.html", {"heading" => heading, "message" => msg, "kind" => kind, "home" => home}, status)
     end
 
     private def text(ctx, body : String, status = 200)
@@ -279,7 +282,7 @@ module Clpaste
       nil
     end
 
-    # What to do with an anonymous request that needs a login: basic-auth
+    # What to do with a guest request that needs a login: basic-auth
     # challenge for admin pages (or whenever OIDC is absent), else OIDC.
     private def unauthenticated(req : Req)
       if self.class.basic_enabled? && (req.path.starts_with?("/admin") || req.path == "/login" || !@oidc.configured?)
@@ -303,34 +306,42 @@ module Clpaste
       id
     end
 
-    # Unprotected mode: anyone may create public pastes, there is no "team",
+    # Unprotected mode: guests may create public pastes, there is no "team",
     # and the paste list / details / manual expiry are admin-only.
     private def unprotected? : Bool
       Superconf.unprotected
     end
 
-    # Who may use the team pages: any signed-in member normally, admins only
+    # Who may use the team pages: any signed-in user normally, admins only
     # when signed-in non-admins are plain users (see Config.plain_users?).
-    private def require_member(req : Req) : Identity
+    private def require_user(req : Req) : Identity
       Config.plain_users? ? require_admin(req) : require_login(req)
     end
 
     # Who may create a paste; nil means "must sign in first".
     private def creator_for(req : Req) : Identity?
-      req.identity || (unprotected? ? ANONYMOUS : nil)
+      req.identity || (unprotected? ? GUEST : nil)
     end
 
-    # Whatever the form or API client sent: without a team there are no team
-    # options, and in unprotected mode every paste is also public and
-    # anonymous creation is rate limited.
+    # May this identity set the team options (and peek)? Formal admins always;
+    # when there is no admin/user split (no admin_domains, not unprotected)
+    # every signed-in user counts.
+    private def team_capable?(identity : Identity?) : Bool
+      return false unless identity
+      identity.admin? || !Config.plain_users?
+    end
+
+    # Whatever the form or API client sent: the team options require admin
+    # (team) status, and in unprotected mode every paste is also public and
+    # guest creation is rate limited.
     private def restrict_fields!(req : Req, fields : Hash(String, String))
-      if Config.plain_users?
+      unless team_capable?(req.identity)
         fields["team_meta"] = "false"
         fields["team_view"] = "false"
       end
       return unless unprotected?
       rate_check!(req)
-      fields["visibility"] = "public"
+      fields["visibility"] = "guests"
       fields["emails"] = ""
     end
 
@@ -353,6 +364,11 @@ module Clpaste
       t ? t.to_s("%Y-%m-%d %H:%M UTC") : "never"
     end
 
+    # With seconds; used where precision matters (detail settings table).
+    private def fmt_time_s(t : Time?) : String
+      t ? t.to_s("%Y-%m-%d %H:%M:%S UTC") : "never"
+    end
+
     # ---- static / home ------------------------------------------------------
 
     private def static(req : Req, name : String)
@@ -367,7 +383,7 @@ module Clpaste
 
     private def home(req : Req)
       if req.identity || unprotected?
-        render(req, "index.html", form_vars(default_form))
+        render(req, "index.html", form_vars(default_form(team_capable?(req.identity))))
       elsif @oidc.configured?
         render(req, "login.html", {"title" => "Sign in", "basic" => self.class.basic_enabled?})
       else
@@ -376,14 +392,14 @@ module Clpaste
       end
     end
 
-    private def default_form : Hash(String, String | Bool)
+    private def default_form(team : Bool) : Hash(String, String | Bool)
       Hash(String, String | Bool){
-        "title" => "", "text" => "", "visibility" => "public", "emails" => "", "ips" => "",
+        "title" => "", "text" => "", "visibility" => "guests", "emails" => "", "ips" => "",
         "pin" => Superconf.default_pin ? random_pin : "", "password" => "",
-        "max_views" => default_max_views_str("public"),
+        "max_views" => default_max_views_str("guests"),
         "ttl_hours" => Superconf.default_ttl_hours > 0 ? Superconf.default_ttl_hours.to_s.sub(/\.0$/, "") : "",
         "max_failures" => Superconf.default_max_failures > 0 ? Superconf.default_max_failures.to_s : "",
-        "cli_only" => false, "team_meta" => Superconf.default_team_meta && !Config.plain_users?, "team_view" => false, "log_ips" => false,
+        "cli_only" => false, "team_meta" => Superconf.default_team_meta && team, "team_view" => false, "log_ips" => false,
       }
     end
 
@@ -400,7 +416,7 @@ module Clpaste
     end
 
     private def default_max_views(visibility : String) : Int32
-      visibility == "public" ? Superconf.default_max_views_public : Superconf.default_max_views_private
+      Meta.audience(visibility) == "guests" ? Superconf.default_max_views_public : Superconf.default_max_views_private
     end
 
     private def default_max_views_str(visibility : String) : String
@@ -498,13 +514,13 @@ module Clpaste
       ttl = f["ttl_hours"]?.presence.try(&.to_f?)
       ttl = Superconf.default_ttl_hours if !f.has_key?("ttl_hours") # API default
       # Absent field (API/CLI) => server default; present but empty => unlimited.
-      max_views = f.has_key?("max_views") ? f["max_views"].presence.try(&.to_i?) : default_max_views(f["visibility"]? || "public")
+      max_views = f.has_key?("max_views") ? f["max_views"].presence.try(&.to_i?) : default_max_views(f["visibility"]? || "guests")
       max_views = nil if max_views == 0
       input = Service::Input.new(
         title: f["title"]?.try(&.strip).presence,
         text: f["text"]?.to_s,
         files: files,
-        visibility: f["visibility"]? || "public",
+        visibility: f["visibility"]? || "guests",
         emails: Config.list(f["emails"]?.to_s),
         ips: Config.list(f["ips"]?.to_s),
         pin: pin,
@@ -532,9 +548,11 @@ module Clpaste
         c = @svc.create(input, id, req.service_request)
         render(req, "created.html", created_vars(req, c))
       rescue e : Service::Error
-        f = default_form
+        f = default_form(team_capable?(req.identity))
         fields.each { |k, v| f[k] = v }
         %w[cli_only team_meta team_view log_ips].each { |k| f[k] = truthy?(fields[k]?) }
+        # Canonical audience so the right visibility tile is re-checked.
+        fields["visibility"]?.try { |v| f["visibility"] = Meta.audience(v) }
         render(req, "index.html", form_vars(f, e.message), 400)
       end
     end
@@ -552,7 +570,12 @@ module Clpaste
       add.call("Expires", fmt_time(m.expires_at))
       add.call("Failures", "expires after #{m.max_failures} failed attempts") if m.max_failures > 0
       add.call("CLI only", "yes") if m.cli_only?
-      add.call("Access", m.public? ? "public" : "private (login required)")
+      access = case m.audience
+               when "guests" then "guests (no login needed)"
+               when "admins" then "admins (admin status required)"
+               else               "users (login required)"
+               end
+      add.call("Access", access)
       rows
     end
 
@@ -573,18 +596,29 @@ module Clpaste
 
     # ---- retrieve (web) -----------------------------------------------------
 
-    private def open_by_id(req : Req)
+    # Paste-ID box on the sign-in page: anyone may jump to a paste by ID.
+    private def view_by_id(req : Req)
       id = Ids.normalize(req.query("id").to_s) || return message(req, "Invalid ID", "Paste IDs are #{Superconf.id_digits} digits (dashes optional).", 400)
       redirect(req, "/p/#{Ids.format(id)}")
     end
 
+    # Navbar "Find" form: admins jump to a paste's detail page by ID.
+    private def find_paste(req : Req)
+      require_admin(req)
+      id = Ids.normalize(req.query("id").to_s) || return message(req, "Invalid ID", "Paste IDs are #{Superconf.id_digits} digits (dashes optional).", 400)
+      @svc.meta_for(id) || return message(req, "No such paste", "There is no paste with ID #{Ids.format(id)}.", 404)
+      redirect(req, "/pastes/#{id}")
+    end
+
     private def view_web_post(req : Req, raw_id : String)
       fields, _ = parse_form(req)
-      rate_check!(req)
       view_web(req, raw_id, fields["pin"]?, fields["password"]?)
     end
 
+    # Every web retrieval attempt (GET or POST, valid ID or not) counts
+    # against the per-IP rate limit, so IDs cannot be scanned for.
     private def view_web(req : Req, raw_id : String, pin : String?, password : String?)
+      rate_check!(req)
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       begin
         r = @svc.retrieve(id, req.service_request(pin, password), want_ticket: true)
@@ -607,11 +641,12 @@ module Clpaste
           "need_password" => meta.try(&.password?) || false,
           "error"         => e.code.starts_with?("bad_") ? e.message : nil,
           "action"        => action || "/p/#{id}",
+          "peek"          => !action.nil?, # an explicit action means a peek route, not a counted view
         }, e.code.starts_with?("bad_") ? 403 : 200)
       when "not_found"
         message(req, "No such paste", "There is no paste with ID #{Ids.format(id)}.", 404)
       when "expired", "gone"
-        message(req, "Paste unavailable", e.message.to_s, 410, "danger")
+        message(req, "Paste unavailable", e.message.to_s, 410, "danger", home: false)
       when "rate_limited"
         message(req, "Slow down", e.message.to_s, 429)
       else
@@ -624,7 +659,7 @@ module Clpaste
         {"name" => file.name, "size" => file.data.size, "content_type" => file.content_type,
          "href" => r.ticket ? "/p/#{r.id}/f/#{i}?t=#{r.ticket}" : ""}
       end
-      status = r.counted ? Service.status_message(r.meta, r.expired_now) : "Team/admin view — not counted as a retrieval, but logged. " + Service.status_message(r.meta, false)
+      status = r.counted ? Service.status_message(r.meta, r.expired_now) : "Peek — not counted as a retrieval, but logged. " + Service.status_message(r.meta, false)
       render(req, "paste.html", {
         "title"          => r.meta.title || "Paste #{Ids.format(r.id)}",
         "id_fmt"         => Ids.format(r.id),
@@ -640,7 +675,7 @@ module Clpaste
 
     private def attachment(req : Req, raw_id : String, index : String)
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
-      body = @svc.ticket(req.query("t").to_s, id) || return message(req, "Link expired", "This download link is no longer valid. Open the paste again.", 410)
+      body = @svc.ticket(req.query("t").to_s, id) || return message(req, "Link expired", "This download link is no longer valid. View the paste again.", 410)
       f = body.files[index.to_i? || -1]? || return message(req, "Not found", "No such attachment.", 404)
       req.response.content_type = f.content_type
       req.response.headers["Content-Disposition"] = %(attachment; filename="#{f.name.gsub('"', "'")}")
@@ -651,7 +686,7 @@ module Clpaste
     # ---- team / admin -------------------------------------------------------
 
     private def list(req : Req)
-      identity = require_member(req)
+      identity = require_user(req)
       admin = identity.admin?
       rows = @svc.list_all.select { |_, meta| admin || Access.team_meta?(meta, identity) }
       render(req, "list.html", {
@@ -672,7 +707,7 @@ module Clpaste
         "title"   => meta.title || "",
         "creator" => meta.creator,
         "created" => fmt_time(meta.created_at),
-        "expires" => meta.expired? ? "expired #{fmt_time(meta.expired_at)}" : fmt_time(meta.expires_at),
+        "expires" => meta.expired? ? "#{fmt_time(meta.expired_at)} (expired)" : fmt_time(meta.expires_at),
         "views"   => meta.max_views ? "#{meta.views}/#{meta.max_views}" : meta.views.to_s,
         "size"    => meta.expired? ? "" : "#{size} B#{meta.attachments.empty? ? "" : " (#{meta.attachments.size} files)"}",
         "flags"   => meta.flags,
@@ -681,14 +716,14 @@ module Clpaste
     end
 
     private def detail(req : Req, raw_id : String)
-      identity = require_member(req)
+      identity = require_user(req)
       admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
       unless admin || Access.team_meta?(meta, identity)
         return message(req, "Access denied", "You may not see this paste's metadata.", 403, "danger")
       end
-      @svc.log(id, admin ? "admin_meta" : "team_meta", meta, req.service_request)
+      @svc.log(id, admin ? "admin_meta" : "user_meta", meta, req.service_request)
       base = "/pastes/#{id}"
       can_view = !meta.expired? && Access.team_view?(meta, identity)
       note = nil
@@ -696,19 +731,21 @@ module Clpaste
         note = "This paste is password-protected: its content key is wrapped with the password, so viewing requires the password even for admins."
       end
       settings = [
-        ["Title", meta.title || "—"], ["Access permissions", meta.visibility], ["Creator", meta.creator],
-        ["Created", fmt_time(meta.created_at)], ["Expires", fmt_time(meta.expires_at)],
+        ["Title", meta.title || "—"], ["Access permissions", meta.audience], ["Creator", meta.creator],
+        ["Created", fmt_time_s(meta.created_at)], ["Expires", fmt_time_s(meta.expires_at)],
       ]
-      settings << ["Views", meta.max_views ? "#{meta.views} of #{meta.max_views}" : "#{meta.views} (unlimited)"]
+      settings << ["Views", meta.max_views ? "#{meta.views} of max #{meta.max_views}" : "#{meta.views} (unlimited)"]
       if meta.expired?
-        settings << ["Expired", "#{fmt_time(meta.expired_at)} (#{meta.expiry_reason})"]
+        settings << ["Expired", "#{fmt_time_s(meta.expired_at)} (#{meta.expiry_reason})"]
       else
         settings.concat [
           ["PIN", meta.pin? ? "yes" : "no"], ["Password", meta.password? ? "yes" : "no"],
-          ["Allowed emails", meta.emails.empty? ? (meta.public? ? "n/a (public)" : "all members") : meta.emails.join(", ")],
+          ["Restricted to emails", meta.emails.empty? ? (meta.public? ? "n/a (guest paste)" : "unrestricted") : meta.emails.join(", ")],
           ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],
           ["CLI only", meta.cli_only? ? "yes" : "no"],
-          ["Team can see metadata", meta.team_meta? ? "yes" : "no"], ["Team can view content", meta.team_view? ? "yes" : "no"],
+        ]
+        settings.concat [
+          ["Users can see metadata", meta.team_meta? ? "yes" : "no"], ["Users can view content", meta.team_view? ? "yes" : "no"],
           ["IPs logged", meta.log_ips? ? "yes" : "no"],
           ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
           ["Text size", "#{meta.text_size} B"],
@@ -737,7 +774,7 @@ module Clpaste
     end
 
     private def view_uncounted(req : Req, raw_id : String, admin : Bool)
-      identity = admin ? require_admin(req) : require_member(req)
+      identity = admin ? require_admin(req) : require_user(req)
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
       unless admin || Access.team_view?(meta, identity)
@@ -750,10 +787,10 @@ module Clpaste
         password = fields["password"]?
       end
       if meta.password? && password.to_s.empty?
-        return render(req, "gate.html", {"title" => "Password", "id_fmt" => Ids.format(id), "need_password" => true, "action" => req.path})
+        return render(req, "gate.html", {"title" => "Password", "id_fmt" => Ids.format(id), "need_password" => true, "action" => req.path, "peek" => true})
       end
       begin
-        r = @svc.view_uncounted(id, req.service_request(nil, password), admin ? "admin_view" : "team_view", want_ticket: true)
+        r = @svc.view_uncounted(id, req.service_request(nil, password), admin ? "admin_view" : "user_view", want_ticket: true)
         render_paste(req, r)
       rescue e : Service::Error
         web_retrieve_error(req, id, e, action: req.path)
@@ -763,7 +800,7 @@ module Clpaste
     end
 
     private def expire(req : Req, raw_id : String)
-      identity = require_member(req)
+      identity = require_user(req)
       admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
@@ -845,8 +882,8 @@ module Clpaste
         "id"              => r.id,
         "id_fmt"          => Ids.format(r.id),
         "title"           => r.meta.title,
-        "creator"         => r.meta.creator,
-        "created_at"      => r.meta.created_at.to_rfc3339,
+        "creator"         => Superconf.show_meta ? r.meta.creator : nil,
+        "created_at"      => Superconf.show_meta ? r.meta.created_at.to_rfc3339 : nil,
         "text"            => r.body.text,
         "files"           => r.body.files.map { |file| {"name" => file.name, "content_type" => file.content_type, "data" => Base64.strict_encode(file.data)} },
         "message"         => Service.status_message(r.meta, r.expired_now),

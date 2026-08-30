@@ -3,7 +3,7 @@
 <div class="alert alert-{{ status_kind }}">{{ status }}</div>
 <div class="d-flex justify-content-between align-items-baseline flex-wrap">
   <h1 class="h4">{% if meta.title %}{{ meta.title }}{% else %}Paste{% endif %} <small class="text-secondary mono">{{ id_fmt }}</small></h1>
-  <span class="small text-secondary">from {{ meta.creator }} · {{ meta.created_at }}</span>
+  {% if show_meta %}<span class="small text-secondary">from {{ meta.creator }} · {{ meta.created_at }}</span>{% endif %}
 </div>
 {% if text %}
 <div class="card mb-3">

@@ -92,7 +92,7 @@ module Clpaste
     end
 
     def log(id : String, action : String, meta : Meta?, req : Request, detail : String? = nil)
-      identity = req.ctx.identity.try(&.email) || "anonymous"
+      identity = req.ctx.identity.try(&.email) || "guest"
       ip = (meta.nil? || meta.log_ips?) ? req.ctx.ip : nil
       @repo.log(id, action, identity, ip, req.ua, req.channel, detail)
     end
@@ -113,8 +113,11 @@ module Clpaste
       if (p = input.pin) && p !~ /\A[0-9]{4,8}\z/
         raise Error.new("invalid", "PIN must be 4 to 8 digits")
       end
-      if input.text.empty? && input.files.empty?
-        raise Error.new("invalid", "Nothing to paste: provide text and/or files")
+      if input.title.to_s.empty? && input.text.empty? && input.files.empty?
+        raise Error.new("invalid", "Nothing to paste: provide a title, text and/or files")
+      end
+      unless %w[guests users admins public private].includes?(input.visibility)
+        raise Error.new("invalid", "Invalid visibility: #{input.visibility} (guests|users|admins)")
       end
       if input.files.size > Superconf.max_attachments
         raise Error.new("invalid", "Too many attachments (max #{Superconf.max_attachments})")
@@ -130,7 +133,7 @@ module Clpaste
       end
 
       meta = Meta.new
-      meta.visibility = input.visibility == "public" ? "public" : "private"
+      meta.visibility = Meta.audience(input.visibility)
       meta.title = input.title.presence
       meta.creator = creator.email
       meta.created_at = Time.utc
@@ -175,7 +178,7 @@ module Clpaste
       Created.new(id, meta, input.pin, input.password.presence)
     end
 
-    # ---- retrieve (counted: customer/user route) ----------------------------
+    # ---- retrieve (counted: the guest/user retrieval route) -----------------
 
     # Raises Service::Error with codes: not_found, expired,
     # need_login, not_allowed, ip_blocked, cli_only, need_pin, bad_pin,
@@ -190,7 +193,7 @@ module Clpaste
         end
         if meta.past_due?
           expire_locked(id, meta, "time limit reached", req)
-          raise Error.new("expired", "This paste has expired (time limit reached).")
+          raise expired_error("time limit reached")
         end
 
         case Access.check(meta, req.ctx)
@@ -240,7 +243,7 @@ module Clpaste
         raise expired_error(meta) if row.state != "live" || meta.expired?
         if meta.past_due?
           expire_locked(id, meta, "time limit reached", req)
-          raise Error.new("expired", "This paste has expired (time limit reached).")
+          raise expired_error("time limit reached")
         end
         body = open_body(id, row, meta, req.ctx.password)
         log(id, kind, meta, req)
@@ -261,8 +264,14 @@ module Clpaste
     # ---- expiry --------------------------------------------------------
 
     private def expired_error(meta : Meta) : Error
+      return Error.new("expired", "This paste has expired.") unless Superconf.show_meta
       when_ = meta.expired_at.try(&.to_s("%Y-%m-%d %H:%M UTC")) || "earlier"
       Error.new("expired", "This paste expired #{when_} (#{meta.expiry_reason || "unknown reason"}).")
+    end
+
+    # For a paste that expires as a consequence of this very request.
+    private def expired_error(reason : String) : Error
+      Error.new("expired", Superconf.show_meta ? "This paste has expired (#{reason})." : "This paste has expired.")
     end
 
     private def deny(id, meta, req, code, msg)
@@ -276,7 +285,7 @@ module Clpaste
       log(id, "denied", meta, req, "#{code} (attempt #{n}#{meta.max_failures > 0 ? "/#{meta.max_failures}" : ""})")
       if meta.max_failures > 0 && n >= meta.max_failures
         expire_locked(id, meta, "too many failed attempts", req)
-        raise Error.new("expired", "Too many failed attempts — this paste has expired.")
+        raise Error.new("expired", Superconf.show_meta ? "Too many failed attempts — this paste has expired." : "This paste has expired.")
       end
       raise Error.new(code, msg)
     end

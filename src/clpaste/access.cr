@@ -27,6 +27,7 @@ module Clpaste
       unless meta.public?
         id = ctx.identity
         return Result::NeedLogin unless id
+        return Result::NotAllowed if meta.admins_only? && !id.admin?
         unless meta.emails.empty? || meta.emails.includes?(id.email.downcase)
           return Result::NotAllowed
         end
@@ -36,7 +37,7 @@ module Clpaste
       Result::Ok
     end
 
-    # Team: any authenticated OIDC member. May they see the metadata/log?
+    # Team: any signed-in user (admin or not). May they see the metadata/log?
     def self.team_meta?(meta : Meta, identity : Identity?) : Bool
       return false unless identity
       return true if identity.admin?

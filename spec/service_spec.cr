@@ -5,6 +5,21 @@ describe Clpaste::Service do
   bob = ident("bob@example.com")
   root = ident("root@example.com", admin: true)
 
+  it "restricts admins-only pastes to admins and maps legacy visibility values" do
+    svc = Clpaste::Service.new(fresh_repo("aud"), MASTER)
+    c = svc.create(input("top", visibility: "admins"), alice, sreq(alice))
+    c.meta.audience.should eq("admins")
+    expect_error("need_login") { svc.retrieve(c.id, sreq(nil), false) }
+    expect_error("not_allowed") { svc.retrieve(c.id, sreq(bob), false) }
+    svc.retrieve(c.id, sreq(root), false).body.text.should eq("top")
+    # Legacy values still parse: public -> guests, private -> users.
+    legacy = svc.create(input("old", visibility: "public"), alice, sreq(alice))
+    legacy.meta.audience.should eq("guests")
+    legacy.meta.flags.first.should eq("guests")
+    Clpaste::Meta.audience("private").should eq("users")
+    expect_error("invalid") { svc.create(input("x", visibility: "everyone"), alice, sreq(alice)) }
+  end
+
   it "creates and retrieves a private paste, counting views and expireing" do
     svc = Clpaste::Service.new(fresh_repo("svc"), MASTER)
     c = svc.create(input("hi", max_views: 2, title: "T"), alice, sreq(alice))
@@ -83,10 +98,10 @@ describe Clpaste::Service do
     svc = Clpaste::Service.new(fresh_repo("svc"), MASTER)
     c = svc.create(input(max_views: 1, team_view: true, ttl_hours: 0.0), alice, sreq(alice))
     c.meta.expires_at.should be_nil
-    r = svc.view_uncounted(c.id, sreq(bob), "team_view", false)
+    r = svc.view_uncounted(c.id, sreq(bob), "user_view", false)
     r.counted.should be_false
     must(svc.meta_for(c.id))[1].views.should eq(0)
-    svc.repo.log_for(c.id).map(&.action).should eq(["created", "team_view"])
+    svc.repo.log_for(c.id).map(&.action).should eq(["created", "user_view"])
 
     e = svc.create(input(ttl_hours: 0.0001), alice, sreq(alice))
     sleep 0.5.seconds

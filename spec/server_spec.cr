@@ -118,7 +118,7 @@ describe Clpaste::Server do
   # No base_url configured: the server must derive it from the Host header.
   base = "http://127.0.0.1:#{port}"
 
-  it "serves static assets and the login page anonymously" do
+  it "serves static assets and the login page to guests" do
     b = Browser.new(base)
     b.get("/static/bootstrap.min.css").status_code.should eq(200)
     b.get("/static/app.css").headers["Content-Type"].should contain("text/css")
@@ -126,6 +126,14 @@ describe Clpaste::Server do
     r = b.get("/")
     r.status_code.should eq(200)
     r.body.should contain("Sign in")
+    # Guests get the paste-ID box both on the sign-in card and in the navbar.
+    r.body.should contain(%(action="/view"))
+    r.body.should contain(">View</button>")
+    r.body.should contain("openform")
+    v = b.get("/view?id=123-456-789")
+    v.status_code.should eq(302)
+    v.headers["Location"].should eq("/p/123-456-789")
+    b.get("/view?id=12").status_code.should eq(400)
     b.get("/healthz").body.should eq("ok")
     b.get("/pastes").status_code.should eq(302)
     b.get("/api/pastes").status_code.should eq(404)
@@ -205,19 +213,19 @@ describe Clpaste::Server do
     bob.get("/pastes/#{id_private}").status_code.should eq(403)
     d = bob.get("/pastes/#{id}")
     d.status_code.should eq(200)
-    d.body.should contain("team_meta")
+    d.body.should contain("user_meta")
     v = bob.get("/pastes/#{id}/view")
     v.status_code.should eq(200)
     v.body.should contain("for the team")
     v.body.should contain("not counted")
     bob.get("/pastes/#{id}/admin-view").status_code.should eq(403)
     bob.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(403)
-    # anonymous users get a sign-in gate for private pastes
+    # guests get a sign-in gate for private pastes
     anon = Browser.new(base)
     gate = anon.get("/p/#{id_private}")
     gate.status_code.should eq(401)
     gate.body.should contain("/login?next=")
-    # the private paste is still retrievable by bob as a member (no email list), and counted
+    # the private paste is still retrievable by bob as a user (no email list), and counted
     bob.get("/p/#{id_private}").body.should contain("mine only")
 
     idp.email = "root@example.com"
@@ -234,6 +242,84 @@ describe Clpaste::Server do
     det.body.should contain("expired by root@example.com")
     det.body.should contain("admin_view")
     idp.groups = [] of String
+  end
+
+  it "gates Find on admin, hides Home on expired pastes, and honours show_meta/show_version" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    r = alice.multipart("/paste", {"text" => "findable", "visibility" => "public", "pin_enabled" => "",
+                                   "ttl_hours" => "1", "max_views" => ""})
+    id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
+
+    # Non-admins get the navbar View box (to /view); Find and /open are admin-only.
+    home = alice.get("/").body
+    home.should contain(%(action="/view"))
+    home.should contain(">View<")
+    home.should_not contain(%(action="/open"))
+    alice.get("/open?id=#{id}").status_code.should eq(403)
+    Browser.new(base).get("/open?id=#{id}").status_code.should eq(302) # guest -> login
+
+    idp.email = "root@example.com"
+    idp.groups = ["clpaste-admins"]
+    root = Browser.new(base)
+    root.login
+    root.get("/").body.should contain(">Find<")
+    f = root.get("/open?id=#{Clpaste::Ids.format(id)}")
+    f.status_code.should eq(302)
+    f.headers["Location"].should eq("/pastes/#{id}")
+    root.get("/open?id=000000001").status_code.should eq(404)
+    # Admins get exactly the admin/guest view buttons, without the redundant team one.
+    d = root.get("/pastes/#{id}")
+    d.body.should contain("Peek as admin")
+    d.body.should contain("View paste as guest")
+    d.body.should_not contain(">Peek</a>")
+    idp.groups = [] of String
+
+    anon = Browser.new(base)
+    anon.get("/p/#{id}").body.should contain("from alice@example.com")
+    begin
+      Superconf.show_meta = false
+      anon.get("/p/#{id}").body.should_not contain("from alice@example.com")
+      api = HTTP::Client.get("#{base}/api/pastes/#{id}")
+      JSON.parse(api.body)["creator"].raw.should be_nil
+      JSON.parse(api.body)["created_at"].raw.should be_nil
+      root.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(303)
+      g = anon.get("/p/#{id}")
+      g.status_code.should eq(410)
+      g.body.should contain("This paste has expired.")
+      g.body.should_not contain("expired by")
+      g.body.should_not contain(">Home<")
+    ensure
+      Superconf.show_meta = true
+    end
+    # With show_meta back on the expired page names when and why, still without Home.
+    g = anon.get("/p/#{id}")
+    g.body.should contain("expired by root@example.com")
+    g.body.should_not contain(">Home<")
+
+    anon.get("/").body.should contain("clpaste #{Clpaste::VERSION}")
+    begin
+      Superconf.show_version = false
+      anon.get("/").body.should_not contain("clpaste #{Clpaste::VERSION}")
+    ensure
+      Superconf.show_version = true
+    end
+  end
+
+  it "accepts title-only pastes and keeps checked boxes on a form error" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    r = alice.multipart("/paste", {"title" => "just a title", "text" => "", "visibility" => "public",
+                                   "pin_enabled" => "", "ttl_hours" => "1"})
+    r.status_code.should eq(200)
+    r.body.should contain("/p/")
+    e = alice.multipart("/paste", {"title" => "", "text" => "", "visibility" => "public",
+                                   "pin_enabled" => "on", "pin" => "12", "cli_only" => "on", "log_ips" => "on"})
+    e.status_code.should eq(400)
+    e.body.should contain(%(id="cli_only" checked))
+    e.body.should contain(%(id="log_ips" checked))
   end
 
   it "issues CLI tokens via the loopback-less code flow and serves the API" do
@@ -343,32 +429,40 @@ describe Clpaste::Server do
     Superconf.unprotected = true
     Superconf.admin_password = "hunter2"
     anon = Browser.new(base)
-    form = anon.get("/")
-    form.status_code.should eq(200)
-    form.body.should contain("Create paste")
-    form.body.should_not contain(%(id="vis_private"))
-    form.body.should_not contain(%(name="team_meta"))
-    # Private/team settings sent anyway are ignored: the paste comes out public and team-less.
-    r = anon.multipart("/paste", {"text" => "open", "visibility" => "private", "team_meta" => "true", "pin" => "", "max_views" => "5"})
-    r.status_code.should eq(200)
-    r.body.should contain("Access:   public")
-    id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
-    anon.get("/p/#{id}").body.should contain("open")
-    api = HTTP::Client.post("#{base}/api/pastes", headers: HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, body: "text=viaapi&visibility=private")
-    api.status_code.should eq(201)
-    JSON.parse(api.body)["flags"].as_a.map(&.as_s).should contain("public")
-    anon.get("/pastes").headers["Location"].should start_with("/login")
-    anon.get("/admin").status_code.should eq(401)
-    good = HTTP::Headers{"Authorization" => "Basic " + Base64.strict_encode("admin:hunter2")}
-    anon.get("/pastes", good).body.should contain("anonymous")
-    # A signed-in non-admin member is not enough for the list in this mode.
-    idp.email = "carol@example.com"
-    idp.groups = [] of String
-    member = Browser.new(base)
-    member.login
-    member.get("/pastes").status_code.should eq(403)
-    Superconf.unprotected = false
-    Superconf.admin_password = ""
+    begin
+      form = anon.get("/")
+      form.status_code.should eq(200)
+      form.body.should contain("Create paste")
+      form.body.should_not contain(%(id="vis_private"))
+      form.body.should_not contain(%(name="team_meta"))
+      # Private/team settings sent anyway are ignored: the paste comes out public and team-less.
+      r = anon.multipart("/paste", {"text" => "open", "visibility" => "private", "team_meta" => "true", "pin" => "", "max_views" => "5"})
+      r.status_code.should eq(200)
+      r.body.should contain("Access:   guests")
+      id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
+      anon.get("/p/#{id}").body.should contain("open")
+      api = HTTP::Client.post("#{base}/api/pastes", headers: HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, body: "text=viaapi&visibility=private")
+      api.status_code.should eq(201)
+      JSON.parse(api.body)["flags"].as_a.map(&.as_s).should contain("guests")
+      anon.get("/pastes").headers["Location"].should start_with("/login")
+      anon.get("/admin").status_code.should eq(401)
+      good = HTTP::Headers{"Authorization" => "Basic " + Base64.strict_encode("admin:hunter2")}
+      anon.get("/pastes", good).body.should contain("guest")
+      # ...but admins may still set the team options.
+      apiadmin = HTTP::Client.post("#{base}/api/pastes",
+        headers: HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded", "Authorization" => good["Authorization"]},
+        body: "text=adminpaste&team_meta=true")
+      JSON.parse(apiadmin.body)["flags"].as_a.map(&.as_s).should contain("team-meta")
+      # A signed-in non-admin user is not enough for the list in this mode.
+      idp.email = "carol@example.com"
+      idp.groups = [] of String
+      user2 = Browser.new(base)
+      user2.login
+      user2.get("/pastes").status_code.should eq(403)
+    ensure
+      Superconf.unprotected = false
+      Superconf.admin_password = ""
+    end
   end
 
   it "makes admins by email domain and turns everyone else into plain users" do
@@ -376,33 +470,60 @@ describe Clpaste::Server do
     idp.groups = [] of String
     idp.email = "dave@example.org"
     root = Browser.new(base)
-    root.login
-    root.get("/pastes").body.should contain("All pastes on this server")
-    # Same domain rule for the CLI token path.
-    idp.email = "erin@corp.example"
-    Browser.new(base).login.headers["Set-Cookie"].should_not be_nil
-    idp.email = "carol@example.com"
-    user = Browser.new(base)
-    user.login
-    form = user.get("/")
-    form.status_code.should eq(200)
-    form.body.should contain("Create paste")
-    form.body.should contain(%(id="vis_private")) # visibility still theirs to choose
-    form.body.should_not contain(%(name="team_meta"))
-    form.body.should_not contain(%(href="/pastes"))
-    r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "team_view" => "true", "pin" => "", "max_views" => "0"})
-    r.status_code.should eq(200)
-    id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
-    user.get("/pastes").status_code.should eq(403)
-    user.get("/pastes/#{id}").status_code.should eq(403)
-    user.get("/pastes/#{id}/view").status_code.should eq(403)
-    user.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(403)
-    user.get("/p/#{id}").body.should contain("plain") # retrieves like any visitor
-    det = root.get("/pastes/#{id}")
-    det.body.should contain("carol@example.com")
-    det.body.should contain("Team can see metadata</th><td>no</td>") # team flags sent by the form were dropped
-    det.body.should contain("Team can view content</th><td>no</td>")
-    Superconf.admin_domains = ""
+    begin
+      root.login
+      root.get("/pastes").body.should contain("All pastes on this server")
+      # Same domain rule for the CLI token path.
+      idp.email = "erin@corp.example"
+      Browser.new(base).login.headers["Set-Cookie"].should_not be_nil
+      idp.email = "carol@example.com"
+      user = Browser.new(base)
+      user.login
+      form = user.get("/")
+      form.status_code.should eq(200)
+      form.body.should contain("Create paste")
+      form.body.should contain(%(id="vis_users")) # visibility still theirs to choose
+      form.body.should_not contain(%(name="team_meta"))
+      form.body.should_not contain(%(href="/pastes"))
+      r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "team_view" => "true", "pin" => "", "max_views" => "0"})
+      r.status_code.should eq(200)
+      id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
+      user.get("/pastes").status_code.should eq(403)
+      user.get("/pastes/#{id}").status_code.should eq(403)
+      user.get("/pastes/#{id}/view").status_code.should eq(403)
+      user.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(403)
+      user.get("/p/#{id}").body.should contain("plain") # retrieves like any visitor
+      det = root.get("/pastes/#{id}")
+      det.body.should contain("carol@example.com")
+      # Team flags sent by the form were dropped: plain users can't set them.
+      det.body.should contain("Users can see metadata</th><td>no</td>")
+      det.body.should contain("Users can view content</th><td>no</td>")
+      meta = must(svc.meta_for(must(Clpaste::Ids.normalize(id))))[1]
+      meta.team_meta?.should be_false
+      meta.team_view?.should be_false
+      # In-domain admins keep the team options, in the form and on create.
+      root.get("/").body.should contain(%(name="team_meta"))
+      r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "team_view" => "on", "pin" => "", "max_views" => "", "ttl_hours" => ""})
+      id2 = must(r2.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
+      meta2 = must(svc.meta_for(must(Clpaste::Ids.normalize(id2))))[1]
+      meta2.team_meta?.should be_true
+      meta2.team_view?.should be_true
+    ensure
+      Superconf.admin_domains = ""
+    end
+  end
+
+  it "rate limits web retrieval attempts so IDs cannot be scanned" do
+    b = Browser.new(base)
+    begin
+      Superconf.rate_limit = 3
+      (1..5).map { b.get("/p/000000002").status_code }.last.should eq(429)
+      r = b.get("/p/000000002")
+      r.status_code.should eq(429)
+      r.body.should contain("Slow down")
+    ensure
+      Superconf.rate_limit = 1000
+    end
   end
 
   it "shuts down" do
