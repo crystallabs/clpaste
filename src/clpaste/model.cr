@@ -17,6 +17,9 @@ module Clpaste
     property pin_hash : String? = nil
     property password_salt : String? = nil # base64; presence => password protected
     property key_wrap : String = ""        # base64; data key sealed with master or password-derived key
+    # PBKDF2 iteration count the key was wrapped with; the default covers
+    # pastes stored before this field existed.
+    property kdf_iterations : Int32 = 210_000
     property emails : Array(String) = [] of String
     property ips : Array(String) = [] of String
     property? cli_only : Bool = false

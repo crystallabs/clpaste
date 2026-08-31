@@ -43,10 +43,12 @@ end
 module Clpaste::Crypto
   class Error < Exception; end
 
-  IV_LEN            =      12
-  TAG_LEN           =      16
-  KEY_LEN           =      32
-  PBKDF2_ITERATIONS = 210_000
+  IV_LEN  = 12
+  TAG_LEN = 16
+  KEY_LEN = 32
+  # For new pastes (OWASP figure for PBKDF2-HMAC-SHA256). Existing pastes
+  # unwrap with the count stored in their metadata (Meta#kdf_iterations).
+  PBKDF2_ITERATIONS = 600_000
 
   # Sealed blob layout: iv(12) || tag(16) || ciphertext
   def self.seal(key : Bytes, plaintext : Bytes, aad : String = "") : Bytes
@@ -107,8 +109,8 @@ module Clpaste::Crypto
     Base64.urlsafe_encode(Digest::SHA256.digest(s), padding: false)
   end
 
-  def self.derive(password : String, salt : Bytes) : Bytes
-    OpenSSL::PKCS5.pbkdf2_hmac(password, salt, PBKDF2_ITERATIONS, OpenSSL::Algorithm::SHA256, KEY_LEN)
+  def self.derive(password : String, salt : Bytes, iterations : Int32 = PBKDF2_ITERATIONS) : Bytes
+    OpenSSL::PKCS5.pbkdf2_hmac(password, salt, iterations, OpenSSL::Algorithm::SHA256, KEY_LEN)
   end
 
   def self.hash_secret(secret : String, cost : Int32 = 10) : String

@@ -106,25 +106,34 @@ module Clpaste
     end
 
     def expire_paste(id : String, residual_meta : Bytes)
-      @db.exec q("UPDATE pastes SET state = 'expired', body = NULL, expires_at = NULL, meta = ? WHERE id = ?"), residual_meta, id
-      @db.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
+      @db.transaction do |txn|
+        cnn = txn.connection
+        cnn.exec q("UPDATE pastes SET state = 'expired', body = NULL, expires_at = NULL, meta = ? WHERE id = ?"), residual_meta, id
+        cnn.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
+      end
     end
 
-    # Full deletion: the paste row, its audit log and failure counters.
+    # Full deletion: the paste row, its audit log and failure counters —
+    # atomically, so a crash cannot leave a partial trace behind.
     def delete_paste(id : String)
-      @db.exec q("DELETE FROM pastes WHERE id = ?"), id
-      @db.exec q("DELETE FROM log WHERE paste_id = ?"), id
-      @db.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
+      @db.transaction do |txn|
+        cnn = txn.connection
+        cnn.exec q("DELETE FROM pastes WHERE id = ?"), id
+        cnn.exec q("DELETE FROM log WHERE paste_id = ?"), id
+        cnn.exec q("DELETE FROM attempts WHERE paste_id = ?"), id
+      end
     end
 
     def expired_ids(now : Time = Time.utc) : Array(String)
       @db.query_all q("SELECT id FROM pastes WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= ?"), now.to_unix, as: String
     end
 
+    # Bodies are not fetched (Row#body is nil): the pastes list and the
+    # sweep only need the metadata, and bodies can be huge.
     def all_pastes : Array(Row)
-      @db.query_all(q("SELECT id, state, created_at, expires_at, meta, body FROM pastes ORDER BY created_at DESC"),
-        as: {String, String, Int64, Int64?, Bytes, Bytes?}).map do |row|
-        Row.new(row[0], row[1], Time.unix(row[2]), row[3].try { |unix| Time.unix(unix) }, row[4], row[5])
+      @db.query_all(q("SELECT id, state, created_at, expires_at, meta FROM pastes ORDER BY created_at DESC"),
+        as: {String, String, Int64, Int64?, Bytes}).map do |row|
+        Row.new(row[0], row[1], Time.unix(row[2]), row[3].try { |unix| Time.unix(unix) }, row[4], nil)
       end
     end
 

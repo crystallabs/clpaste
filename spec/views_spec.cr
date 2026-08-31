@@ -39,7 +39,7 @@ describe Clpaste::Views do
     html.should contain(%(href="/static/extra.css"))
     html.should contain(%(<nav class="navbar custom-navbar" data-bs-theme="dark">))
     html.should contain(%(<img src="/static/logo.svg"))
-    html.should contain("Specsite")     # non-overridden parts still render
+    html.should contain("Specsite")          # non-overridden parts still render
     html.should contain("Spec message body") # the page's own content block too
     html.should_not contain("bg-body-tertiary")
   end

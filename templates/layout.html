@@ -35,7 +35,8 @@
     {% if user %}
     <span class="navbar-text small">
       {{ user.email }}{% if user.admin %} <span class="badge text-bg-warning">admin</span>{% endif %}
-      &nbsp;<a href="/logout" class="link-secondary">Logout</a>
+      {# POST, not a link: a GET that changes state would be triggerable cross-site. #}
+      &nbsp;<form action="/logout" method="post" class="d-inline"><button type="submit" class="btn btn-link btn-sm link-secondary p-0 align-baseline">Logout</button></form>
     </span>
     {% else %}
     {# Outside .navbar-text: Bootstrap's `.navbar-text a` color rule would darken the button label. #}

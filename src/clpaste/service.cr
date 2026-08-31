@@ -81,7 +81,7 @@ module Clpaste
       wrap = Base64.decode(meta.key_wrap)
       if salt = meta.password_salt
         raise Error.new("need_password", "Password required") unless password
-        kek = Crypto.derive(password, Base64.decode(salt))
+        kek = Crypto.derive(password, Base64.decode(salt), meta.kdf_iterations)
         begin
           Crypto.open(kek, wrap, "key")
         rescue Crypto::Error
@@ -170,6 +170,7 @@ module Clpaste
       if pw = input.password.presence
         salt = Random::Secure.random_bytes(16)
         meta.password_salt = Base64.strict_encode(salt)
+        meta.kdf_iterations = Crypto::PBKDF2_ITERATIONS
         meta.key_wrap = Base64.strict_encode(Crypto.seal(Crypto.derive(pw, salt), dk, "key"))
       else
         meta.key_wrap = Base64.strict_encode(Crypto.seal(@master, dk, "key"))

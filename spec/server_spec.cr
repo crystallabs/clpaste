@@ -395,6 +395,42 @@ describe Clpaste::Server do
     e.body.should contain(%(id="log_ips" checked))
   end
 
+  it "rejects invalid numeric fields instead of weakening protections" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    fields = {"text" => "guarded", "visibility" => "public", "pin_enabled" => ""}
+    {
+      {"ttl_hours", "24h", "Expiry"},
+      {"ttl_hours", "-1", "Expiry"},
+      {"max_views", "many", "Max views"},
+      {"max_views", "1.5", "Max views"},
+      {"max_failures", "x", "Max view failures"},
+      {"delete_after_hours", "-2", "Delete after"},
+    }.each do |field, value, label|
+      res = alice.multipart("/paste", fields.merge({field => value}))
+      res.status_code.should eq(400)
+      res.body.should contain("#{label} must be")
+    end
+  end
+
+  it "requires POST for logout and rejects cross-site form posts" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    # A state-changing GET would be triggerable cross-site.
+    alice.get("/logout").status_code.should eq(404)
+    alice.get("/").body.should contain("alice@example.com")
+    # A browser POST declaring a foreign origin is rejected (protects
+    # basic-auth admins; cookie sessions are SameSite=Lax already).
+    evil = alice.post("/paste", {"text" => "x", "visibility" => "public"}, HTTP::Headers{"Origin" => "https://evil.example"})
+    evil.status_code.should eq(403)
+    # Same-origin posts still work, and so do Origin-less clients (CLI).
+    ok = alice.post("/logout", {} of String => String, HTTP::Headers{"Origin" => base})
+    ok.status_code.should eq(302)
+    alice.cookie.should be_nil
+  end
+
   it "issues CLI tokens via the loopback-less code flow and serves the API" do
     idp.email = "alice@example.com"
     alice = Browser.new(base)

@@ -1,5 +1,6 @@
 require "http/server"
 require "http/formdata"
+require "mime/multipart"
 require "json"
 require "uri"
 
@@ -69,6 +70,11 @@ module Clpaste
       end
     end
 
+    # Ceiling for each of the in-memory maps below: the sweeper prunes them
+    # periodically, but a burst of unauthenticated requests must not grow
+    # them without bound in between.
+    MAX_TRACKED = 10_000
+
     @pending = {} of String => Pending
     @cli_codes = {} of String => CliCode
     @rate = {} of String => {Int32, Time}
@@ -98,10 +104,8 @@ module Clpaste
         begin
           @svc.sweep
           @state_lock.synchronize do
-            cutoff = Time.utc - 10.minutes
-            @pending.reject! { |_, pending| pending.created_at < cutoff }
-            @cli_codes.reject! { |_, entry| entry.created_at < cutoff }
-            @rate.reject! { |_, entry| entry[1] < cutoff }
+            prune_tracked
+            @rate.reject! { |_, entry| entry[1] < Time.utc - 10.minutes }
           end
         rescue e
           Log.error(exception: e) { "sweep failed" }
@@ -153,6 +157,7 @@ module Clpaste
 
     private def route(req : Req)
       m = req.request.method
+      check_origin!(req) unless m == "GET" || m == "HEAD"
       p = req.path.split('/').reject(&.empty?)
       # Tuple#=== matches element-wise (String === "x"), unlike Array.
       case {m, p.size, p[0]?, p[1]?, p[2]?, p[3]?}
@@ -161,7 +166,7 @@ module Clpaste
       when {"GET", 2, "static", String, nil, nil}                                                            then static(req, p[1])
       when {"GET", 1, "login", nil, nil, nil}                                                                then login(req)
       when {"GET", 2, "auth", "callback", nil, nil}                                                          then callback(req)
-      when {"GET", 1, "logout", nil, nil, nil}, {"POST", 1, "logout", nil, nil, nil}                         then logout(req)
+      when {"POST", 1, "logout", nil, nil, nil}                                                              then logout(req)
       when {"GET", 1, "open", nil, nil, nil}                                                                 then find_paste(req)
       when {"GET", 1, "view", nil, nil, nil}                                                                 then view_by_id(req)
       when {"POST", 1, "paste", nil, nil, nil}                                                               then create_web(req)
@@ -212,15 +217,19 @@ module Clpaste
       })
     end
 
+    private def write_html(response : HTTP::Server::Response, body : String, status : Int32)
+      response.status_code = status
+      response.content_type = "text/html; charset=utf-8"
+      response.headers["Cache-Control"] = "no-store"
+      response.headers["X-Content-Type-Options"] = "nosniff"
+      response.headers["X-Frame-Options"] = "DENY"
+      response.print body
+    end
+
     private def render(req : Req, name : String, vars, status = 200)
       all = base_vars(req)
       Crinja.variables(vars).each { |k, v| all[k] = v }
-      req.response.status_code = status
-      req.response.content_type = "text/html; charset=utf-8"
-      req.response.headers["Cache-Control"] = "no-store"
-      req.response.headers["X-Content-Type-Options"] = "nosniff"
-      req.response.headers["X-Frame-Options"] = "DENY"
-      req.response.print @views.render(name, all)
+      write_html(req.response, @views.render(name, all), status)
     end
 
     private def message(ctx : HTTP::Server::Context, heading : String, msg : String, status = 200, kind = "warning", home = true)
@@ -228,9 +237,7 @@ module Clpaste
       # identity for the navbar if we have it cheaply
       all["user"] = Crinja::Value.new(nil)
       {"heading" => heading, "message" => msg, "kind" => kind, "home" => home}.each { |k, v| all[k] = Crinja::Value.new(v) }
-      ctx.response.status_code = status
-      ctx.response.content_type = "text/html; charset=utf-8"
-      ctx.response.print @views.render("message.html", all)
+      write_html(ctx.response, @views.render("message.html", all), status)
     end
 
     private def message(req : Req, heading : String, msg : String, status = 200, kind = "warning", home = true)
@@ -263,6 +270,31 @@ module Clpaste
     private def redirect(req : Req, to : String, status = 302)
       req.response.status_code = status
       req.response.headers["Location"] = to
+    end
+
+    # Browsers declare the requesting page's origin on cross-site POSTs.
+    # Session cookies are SameSite=Lax already, but basic-auth credentials
+    # get attached to cross-site requests too — reject those. Non-browser
+    # clients (CLI, curl) send no Origin header and pass through.
+    private def check_origin!(req : Req)
+      origin = req.request.headers["Origin"]?.presence || return
+      okey = origin_key(origin)
+      bkey = req.base_url.try { |base| origin_key(base) }
+      return if okey && okey == bkey
+      raise Service::Error.new("forbidden", "Cross-site request rejected")
+    end
+
+    # host[:port] for origin comparison; default ports (80/443, or none
+    # given) are normalised away so a deployment where the derived scheme
+    # differs from the browser's (untrusted TLS proxy) still matches.
+    private def origin_key(url : String) : String?
+      uri = URI.parse(url)
+      host = uri.host.presence || return
+      port = uri.port
+      port = nil if port == 80 || port == 443
+      port ? "#{host}:#{port}" : host
+    rescue URI::Error
+      nil
     end
 
     private def safe_next(s : String?) : String
@@ -351,12 +383,23 @@ module Clpaste
       fields["emails"] = ""
     end
 
+    # Drops handshake entries older than their useful life. Call with
+    # @state_lock held.
+    private def prune_tracked(cutoff = Time.utc - 10.minutes)
+      @pending.reject! { |_, pending| pending.created_at < cutoff }
+      @cli_codes.reject! { |_, entry| entry.created_at < cutoff }
+    end
+
     private def rate_check!(req : Req)
       return if req.identity.try(&.admin?) # admins are exempt
       limit = Superconf.rate_limit
       return if limit <= 0
       @state_lock.synchronize do
         now = Time.utc
+        if @rate.size >= MAX_TRACKED
+          @rate.reject! { |_, entry| entry[1] < now - 1.minute }
+          @rate.shift if @rate.size >= MAX_TRACKED # still full: evict the oldest
+        end
         count, start = @rate[req.ip]? || {0, now}
         if now - start > 1.minute
           count, start = 0, now
@@ -473,7 +516,11 @@ module Clpaste
       state = Crypto.token(16)
       nonce = Crypto.token(16)
       redirect_uri = req.url!("/auth/callback")
-      @state_lock.synchronize { @pending[state] = Pending.new(nonce, safe_next(req.query("next")), redirect_uri, Time.utc) }
+      @state_lock.synchronize do
+        prune_tracked if @pending.size >= MAX_TRACKED
+        raise Service::Error.new("rate_limited", "Too many pending logins; try again in a few minutes") if @pending.size >= MAX_TRACKED
+        @pending[state] = Pending.new(nonce, safe_next(req.query("next")), redirect_uri, Time.utc)
+      end
       redirect(req, @oidc.authorize_url(state, nonce, redirect_uri))
     end
 
@@ -512,17 +559,41 @@ module Clpaste
       {"on", "true", "1", "yes"}.includes?(v.to_s.downcase)
     end
 
+    # Read-only IO wrapper that fails once more than `limit` bytes pass
+    # through, bounding memory use for requests without a Content-Length.
+    private class CappedIO < IO
+      def initialize(@io : IO, @limit : Int64)
+      end
+
+      def read(slice : Bytes) : Int32
+        n = @io.read(slice)
+        @limit -= n
+        raise Service::Error.new("invalid", "Request too large") if @limit < 0
+        n
+      end
+
+      def write(slice : Bytes) : NoReturn
+        raise IO::Error.new("CappedIO is read-only")
+      end
+    end
+
     # Parses multipart or urlencoded bodies into fields + attachments.
+    # The size limit is enforced while reading: chunked requests carry no
+    # Content-Length, so the header check alone cannot bound them.
     private def parse_form(req : Req) : {Hash(String, String), Array(Attachment)}
       fields = {} of String => String
       files = [] of Attachment
       r = req.request
-      if (len = r.headers["Content-Length"]?.try(&.to_i64?)) && len > Superconf.max_body_size + 1_048_576
+      limit = Superconf.max_body_size + 1_048_576
+      if (len = r.headers["Content-Length"]?.try(&.to_i64?)) && len > limit
         raise Service::Error.new("invalid", "Request too large")
       end
+      body = r.body || return {fields, files}
+      capped = CappedIO.new(body, limit)
       ct = r.headers["Content-Type"]?.to_s
       if ct.starts_with?("multipart/form-data")
-        HTTP::FormData.parse(r) do |part|
+        boundary = MIME::Multipart.parse_boundary(ct) || raise Service::Error.new("invalid", "Malformed multipart body")
+        HTTP::FormData.parse(capped, boundary) do |part|
           if fn = part.filename.presence
             data = part.body.getb_to_end
             files << Attachment.new(File.basename(fn), part.headers["Content-Type"]? || "application/octet-stream", data)
@@ -532,10 +603,24 @@ module Clpaste
           end
         end
       else
-        body = r.body.try(&.gets_to_end) || ""
-        URI::Params.parse(body).each { |k, v| fields[k] = v }
+        URI::Params.parse(capped.gets_to_end).each { |k, v| fields[k] = v }
       end
       {fields, files}
+    end
+
+    # A present, non-empty numeric field must parse and be non-negative:
+    # falling back on garbage would silently pick the most permissive
+    # setting (no expiry, unlimited views/failures, no deletion).
+    private def float!(value : String, label : String) : Float64
+      num = value.to_f?
+      raise Service::Error.new("invalid", "#{label} must be a non-negative number") if num.nil? || num < 0
+      num
+    end
+
+    private def int!(value : String, label : String) : Int32
+      num = value.to_i?
+      raise Service::Error.new("invalid", "#{label} must be a non-negative whole number") if num.nil? || num < 0
+      num
     end
 
     private def input_from(f : Hash(String, String), files : Array(Attachment)) : {Service::Input, String?}
@@ -544,10 +629,9 @@ module Clpaste
       pw_enabled = f.has_key?("password_enabled") ? truthy?(f["password_enabled"]) : !f["password"]?.to_s.empty?
       password = pw_enabled ? f["password"]?.presence : nil
       raise Service::Error.new("invalid", "Password protection is on but no password was given") if pw_enabled && password.nil?
-      ttl = f["ttl_hours"]?.presence.try(&.to_f?)
-      ttl = Superconf.default_ttl_hours if !f.has_key?("ttl_hours") # API default
-      # Absent field (API/CLI) => server default; present but empty => unlimited.
-      max_views = f.has_key?("max_views") ? f["max_views"].presence.try(&.to_i?) : default_max_views(f["visibility"]? || "guests")
+      # Absent field (API/CLI) => server default; present but empty => unlimited/never.
+      ttl = f.has_key?("ttl_hours") ? f["ttl_hours"].presence.try { |val| float!(val, "Expiry") } : Superconf.default_ttl_hours
+      max_views = f.has_key?("max_views") ? f["max_views"].presence.try { |val| int!(val, "Max views") } : default_max_views(f["visibility"]? || "guests")
       max_views = nil if max_views == 0
       input = Service::Input.new(
         title: f["title"]?.try(&.strip).presence,
@@ -569,8 +653,8 @@ module Clpaste
         admin_view: checkbox(f, "admin_view"),
         admin_manage: checkbox(f, "admin_manage"),
         log_ips: checkbox(f, "log_ips"),
-        max_failures: f.has_key?("max_failures") ? (f["max_failures"].presence.try(&.to_i?) || 0) : Superconf.default_max_failures,
-        delete_after_hours: f["delete_after_hours"]?.presence.try(&.to_f?), # absent or empty => never deleted
+        max_failures: f.has_key?("max_failures") ? (f["max_failures"].presence.try { |val| int!(val, "Max view failures") } || 0) : Superconf.default_max_failures,
+        delete_after_hours: f["delete_after_hours"]?.presence.try { |val| float!(val, "Delete after") }, # absent or empty => never deleted
         delete_on_retrieval: checkbox(f, "delete_on_retrieval"),
       )
       {input, pin}
@@ -722,8 +806,12 @@ module Clpaste
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       body = @svc.ticket(req.query("t").to_s, id) || return message(req, "Link expired", "This download link is no longer valid. View the paste again.", 410)
       f = body.files[index.to_i? || -1]? || return message(req, "Not found", "No such attachment.", 404)
-      req.response.content_type = f.content_type
-      req.response.headers["Content-Disposition"] = %(attachment; filename="#{f.name.gsub('"', "'")}")
+      # Both values are uploader-supplied and go into response headers: a
+      # control character in them would make the header write raise.
+      ctype = f.content_type
+      req.response.content_type = ctype =~ /\A[^\x00-\x1f\x7f]+\z/ ? ctype : "application/octet-stream"
+      req.response.headers["X-Content-Type-Options"] = "nosniff"
+      req.response.headers["Content-Disposition"] = %(attachment; filename="#{f.name.gsub('"', "'").gsub(/[\x00-\x1f\x7f]/, "_")}")
       req.response.headers["Content-Length"] = f.data.size.to_s
       req.response.write f.data
     end
@@ -897,7 +985,11 @@ module Clpaste
         return message(req, "Bad request", "Missing CLI login parameters.", 400, "danger")
       end
       code = Crypto.token(24)
-      @state_lock.synchronize { @cli_codes[code] = CliCode.new(challenge, identity.email, identity.name, identity.admin?, Time.utc) }
+      @state_lock.synchronize do
+        prune_tracked if @cli_codes.size >= MAX_TRACKED
+        raise Service::Error.new("rate_limited", "Too many pending CLI logins; try again in a few minutes") if @cli_codes.size >= MAX_TRACKED
+        @cli_codes[code] = CliCode.new(challenge, identity.email, identity.name, identity.admin?, Time.utc)
+      end
       if port > 0
         redirect(req, "http://127.0.0.1:#{port}/callback?code=#{code}&state=#{URI.encode_www_form(state)}")
       else
