@@ -36,7 +36,6 @@ module Clpaste
       ttl_hours : Float64?,
       cli_only : Bool,
       team_meta : Bool,
-      team_view : Bool,
       log_ips : Bool,
       max_failures : Int32,
       author_meta : Bool = true,
@@ -153,7 +152,6 @@ module Clpaste
       meta.ips = input.ips
       meta.cli_only = input.cli_only
       meta.team_meta = input.team_meta
-      meta.team_view = input.team_view
       meta.author_meta = input.author_meta
       meta.author_view = input.author_view
       meta.author_manage = input.author_manage

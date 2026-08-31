@@ -195,11 +195,11 @@ describe Clpaste::Server do
     e.body.should_not contain(%(id="log_ips" checked))
   end
 
-  it "shows team/admin lists and details, honours team_meta/team_view, and expires" do
+  it "shows team/admin lists and details, honours team_meta, and expires" do
     idp.email = "alice@example.com"
     alice = Browser.new(base)
     alice.login
-    r = alice.multipart("/paste", {"text" => "for the team", "visibility" => "private", "pin_enabled" => "", "team_meta" => "on", "team_view" => "on", "password_enabled" => "", "ttl_hours" => "2"})
+    r = alice.multipart("/paste", {"text" => "for the team", "visibility" => "private", "pin_enabled" => "", "team_meta" => "on", "password_enabled" => "", "ttl_hours" => "2"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
     # The author grants admins everything (no built-in admin exemption any more).
     r = alice.multipart("/paste", {"text" => "mine only", "visibility" => "private", "pin_enabled" => "", "ttl_hours" => "2", "max_views" => "",
@@ -216,10 +216,8 @@ describe Clpaste::Server do
     d = bob.get("/pastes/#{id}")
     d.status_code.should eq(200)
     d.body.should contain("user_meta")
-    v = bob.get("/pastes/#{id}/view")
-    v.status_code.should eq(200)
-    v.body.should contain("for the team")
-    v.body.should contain("not counted")
+    # non-authors may never peek, even with team_meta on
+    bob.get("/pastes/#{id}/view").status_code.should eq(403)
     bob.get("/pastes/#{id}/admin-view").status_code.should eq(403)
     bob.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(403)
     # guests get a sign-in gate for private pastes
@@ -509,7 +507,7 @@ describe Clpaste::Server do
       form.status_code.should eq(200)
       form.body.should contain("Create paste")
       form.body.should_not contain(%(id="vis_private"))
-      form.body.should_not contain(%(name="team_view"))
+      form.body.should_not contain(%(name="author_view"))
       # Private/team settings sent anyway are ignored: the paste comes out public and team-less.
       r = anon.multipart("/paste", {"text" => "open", "visibility" => "private", "team_meta" => "true", "pin" => "", "max_views" => "5"})
       r.status_code.should eq(200)
@@ -558,9 +556,9 @@ describe Clpaste::Server do
       form.status_code.should eq(200)
       form.body.should contain("Create paste")
       form.body.should contain(%(id="vis_users")) # visibility still theirs to choose
-      form.body.should_not contain(%(name="team_view"))
+      form.body.should_not contain(%(name="author_view"))
       form.body.should_not contain(%(href="/pastes"))
-      r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "team_view" => "true", "pin" => "", "max_views" => "0"})
+      r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "pin" => "", "max_views" => "0"})
       r.status_code.should eq(200)
       id = must(r.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
       user.get("/pastes").status_code.should eq(403)
@@ -574,15 +572,13 @@ describe Clpaste::Server do
       det.body.should contain("Users can</th><td>nothing</td>")
       meta = must(svc.meta_for(must(Clpaste::Ids.normalize(id))))[1]
       meta.team_meta?.should be_false
-      meta.team_view?.should be_false
       # In-domain admins keep the team options, in the form and on create.
-      root.get("/").body.should contain(%(name="team_view"))
-      r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "team_view" => "on", "pin" => "", "max_views" => "", "ttl_hours" => "",
+      root.get("/").body.should contain(%(name="author_view"))
+      r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "pin" => "", "max_views" => "", "ttl_hours" => "",
                                      "emails" => "bob eve@other.example"})
       id2 = must(r2.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
       meta2 = must(svc.meta_for(must(Clpaste::Ids.normalize(id2))))[1]
       meta2.team_meta?.should be_true
-      meta2.team_view?.should be_true
       # A bare account name is completed with the first admin domain.
       meta2.emails.should eq(["bob@example.org", "eve@other.example"])
     ensure

@@ -276,7 +276,6 @@ module Clpaste
         parser.on("--cli-only", "Viewable only via CLI") { fields["cli_only"] = "true" }
         parser.on("--team-meta", "Users may see metadata & audit log (server default: off)") { fields["team_meta"] = "true" }
         parser.on("--no-team-meta", "Hide metadata & audit log from other users") { fields["team_meta"] = "false" }
-        parser.on("--team-view", "Users may peek the content (uncounted, logged)") { fields["team_view"] = "true" }
         parser.on("--no-author-meta", "Author may not see metadata & audit log (default: may)") { fields["author_meta"] = "false" }
         parser.on("--author-view", "Author may peek the content (default: not)") { fields["author_view"] = "true" }
         parser.on("--no-author-manage", "Author may not expire/delete the paste (default: may)") { fields["author_manage"] = "false" }

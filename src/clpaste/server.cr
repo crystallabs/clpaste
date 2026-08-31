@@ -326,7 +326,7 @@ module Clpaste
       req.identity || (unprotected? ? GUEST : nil)
     end
 
-    # May this identity set the team options (and peek)? Formal admins always;
+    # May this identity set the team options? Formal admins always;
     # when there is no admin/user split (no admin_domains, not unprotected)
     # every signed-in user counts.
     private def team_capable?(identity : Identity?) : Bool
@@ -340,7 +340,6 @@ module Clpaste
     private def restrict_fields!(req : Req, fields : Hash(String, String))
       unless team_capable?(req.identity)
         fields["team_meta"] = "false"
-        fields["team_view"] = "false"
         # The Permissions card is hidden for these users: keep the defaults.
         FORM_CHECKBOXES.each do |key, val|
           fields[key] = val.to_s if key.starts_with?("author_") || key.starts_with?("admin_")
@@ -408,7 +407,6 @@ module Clpaste
     # team_meta is special: its default comes from configuration.
     FORM_CHECKBOXES = {
       "cli_only"            => false,
-      "team_view"           => false,
       "log_ips"             => false,
       "delete_on_retrieval" => false,
       "author_meta"         => true,
@@ -564,7 +562,6 @@ module Clpaste
         ttl_hours: ttl,
         cli_only: checkbox(f, "cli_only"),
         team_meta: f.has_key?("team_meta") ? truthy?(f["team_meta"]) : Superconf.default_team_meta, # absent (API/CLI) => configured default
-        team_view: checkbox(f, "team_view"),
         author_meta: checkbox(f, "author_meta"),
         author_view: checkbox(f, "author_view"),
         author_manage: checkbox(f, "author_manage"),
@@ -776,7 +773,7 @@ module Clpaste
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
       base = "/pastes/#{id}"
-      can_view = !meta.expired? && Access.team_view?(meta, identity)
+      can_view = !meta.expired? && Access.peek?(meta, identity)
       manage = Access.manage?(meta, identity)
       common = {
         "title"           => "Paste #{Ids.format(id)}",
@@ -811,7 +808,7 @@ module Clpaste
         ["Delete", meta.delete_desc || "never"],
         ["Author can", perm_desc(meta.author_meta?, meta.author_view?, meta.author_manage?)],
         ["Admins can", perm_desc(meta.admin_meta?, meta.admin_view?, meta.admin_manage?)],
-        ["Users can", perm_desc(meta.team_meta?, meta.team_view?)],
+        ["Users can", perm_desc(meta.team_meta?, false)],
         ["IPs logged", meta.log_ips? ? "yes" : "no"],
         ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
         ["Text size", "#{meta.text_size} B"],
@@ -841,7 +838,7 @@ module Clpaste
       identity = admin ? require_admin(req) : require_user(req)
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless Access.team_view?(meta, identity)
+      unless Access.peek?(meta, identity)
         return message(req, "Not possible", "This paste does not grant you access to peek at its content.", 403, "warning")
       end
       password = nil

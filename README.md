@@ -2,15 +2,29 @@
 
 Clean, professional, encrypted paste service in one binary.
 
-Creating pastes and the admin pages require signing in — through your OIDC
-provider, or with the HTTP basic-auth admin account (the default when no
-OIDC is configured). Viewing is open to anyone, subject to whatever
-restrictions the author put on the paste. Every option you set tightens
-access; nothing loosens it. With `--unprotected` guests may create public
-pastes without signing in; only the admin pages stay behind a login.
+Clpaste runs in one of three modes, from a classic open pastebin to a
+full identity-provider setup:
 
-People fall into three categories: **admins**, **users** (signed in, not
-admins) and **guests** (not signed in).
+1. **Open** (`--unprotected`): a public pastebin where everyone is
+   equal. Anyone may create and view public pastes without signing in;
+   nobody gets metadata pages or admin functions. (The basic-auth admin
+   account of mode 2 still exists for oversight — the pastes list and
+   expire/delete.)
+2. **HTTP basic auth** (the default when no OIDC provider is
+   configured): whoever signs in with the admin account is an admin —
+   they create pastes, see the list and manage everything; everyone
+   else is a guest who can only view pastes. The password is
+   auto-generated and printed at startup; set `CLPASTE_ADMIN_PASSWORD`
+   to make it permanent.
+3. **OIDC**: sign-in through your identity provider (Keycloak,
+   Authentik, Entra, Google, …) gives the full three roles — **admins**
+   (picked by email, domain or claim), **users** (signed in, not
+   admins) who create and share pastes, and **guests** (not signed in)
+   who view them.
+
+In every mode, viewing a paste is open to anyone subject to whatever
+restrictions the author put on it. Every option you set tightens
+access; nothing loosens it.
 
 ![New paste](screenshots/new-paste.png)
 ![Pastes](screenshots/pastes.png)
@@ -23,9 +37,9 @@ admins) and **guests** (not signed in).
   restriction, IP/CIDR allowlist, CLI-only, expiry after N failed attempts.
 * **Per-role permissions:** the author decides, per paste, what the
   author, admins and other signed-in users may do with it — manage it
-  (expire/delete; author and admins only), see its metadata & audit log,
-  and/or peek at the content without consuming a view (logged). No
-  built-in exemptions — even admins only get what the paste grants
+  (expire/delete) and peek at the content without consuming a view
+  (logged; both author and admins only), and see its metadata & audit
+  log. No built-in exemptions — even admins only get what the paste grants
   (since 0.3.0; before that the author and admins were always exempt).
 * **Audit log** of who viewed what and when (identity from OIDC when
   available; IPs only if the author opted in). The log outlives the paste
@@ -134,7 +148,7 @@ clpaste whoami
 echo "secret" | clpaste put                        # guests, PIN on, 24h, 1 view (server defaults; users/admins default to unlimited)
 clpaste put report.pdf notes.txt --text "see attached" --views 1 --ttl 2
 clpaste put --guests --pin 4321 --password hunter2 --ips "203.0.113.0/24 198.51.100.7" --cli-only --max-failures 3
-clpaste put --users --emails bob@example.com,eve@example.com --team-meta --team-view --log-ips
+clpaste put --users --emails bob@example.com,eve@example.com --team-meta --log-ips
 clpaste put --json ...                             # machine-readable {id, id_fmt, url, pin, ...}
 
 clpaste get 123-456-789                          # prompts for PIN/password if needed; text -> stdout,
@@ -205,9 +219,10 @@ Notable ones:
 * **Peeks** (`/pastes/ID/view`, `/pastes/ID/admin-view`) show the content
   without counting a view; they are logged. What a role may do — manage
   the paste (expire/delete), open its settings + log page, peek — is set
-  per paste on the Permissions card, separately for the author, for
-  admins and for users (other signed-in people; users can only be
-  granted peek). Defaults: the author may do all three, admins may
+  per paste on the Permissions card, separately for the author and for
+  admins; other signed-in users can never peek, only view (counted), and
+  may at most see metadata (`--team-meta`). Defaults: the author may do
+  all three, admins may
   manage and see metadata, users nothing. There are no built-in
   exemptions: a paste that grants admins
   nothing shows admins nothing beyond its `/pastes` list row. Someone
@@ -367,7 +382,6 @@ Text is read from stdin unless --text is given.
     --cli-only                       Viewable only via CLI
     --team-meta                      Users may see metadata & audit log (server default: off)
     --no-team-meta                   Hide metadata & audit log from other users
-    --team-view                      Users may peek the content (uncounted, logged)
     --no-author-meta                 Author may not see metadata & audit log (default: may)
     --author-view                    Author may peek the content (default: not)
     --no-author-manage               Author may not expire/delete the paste (default: may)

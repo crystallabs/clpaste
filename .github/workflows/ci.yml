@@ -39,7 +39,7 @@ jobs:
           CLPASTE_SPEC_PG_HOST: ${{ matrix.db == 'postgres' && 'postgres' || '' }}
           CLPASTE_SPEC_PG_PASSWORD: ${{ matrix.db == 'postgres' && 'clpastepw' || '' }}
       - name: Lint
-        run: bin/ameba
+        run: mkdir -p bin && crystal build lib/ameba/bin/ameba.cr -o bin/ameba && bin/ameba
 
   image:
     name: Docker image

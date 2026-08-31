@@ -19,7 +19,7 @@ describe Clpaste::Database do
 
   # Live PostgreSQL tests: CLPASTE_SPEC_PG_HOST=127.0.0.1 CLPASTE_SPEC_PG_PASSWORD=… (app role `clpaste`, CREATEDB)
   # and optionally CLPASTE_SPEC_PG_SUPER=user:password for the superuser path.
-  pg_host = ENV["CLPASTE_SPEC_PG_HOST"]?
+  pg_host = ENV["CLPASTE_SPEC_PG_HOST"]?.presence
   if pg_host
     it "creates a missing database as the app role" do
       name = "clpaste_spec_#{Random::Secure.hex(3)}"

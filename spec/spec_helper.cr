@@ -53,7 +53,6 @@ def input(text = "hello", **opts)
     ttl_hours: opts[:ttl_hours]? || 24.0,
     cli_only: opts[:cli_only]? || false,
     team_meta: opts[:team_meta]? || false,
-    team_view: opts[:team_view]? || false,
     log_ips: opts[:log_ips]? || false,
     max_failures: opts[:max_failures]? || 3,
     delete_after_hours: opts[:delete_after_hours]? || nil,

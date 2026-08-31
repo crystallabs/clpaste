@@ -94,9 +94,9 @@ describe Clpaste::Service do
     svc.repo.log_for(b.id).compact_map(&.ip).should contain("1.1.1.1")
   end
 
-  it "team views are uncounted but logged; expiry expires via sweep" do
+  it "peek views are uncounted but logged; expiry expires via sweep" do
     svc = Clpaste::Service.new(fresh_repo("svc"), MASTER)
-    c = svc.create(input(max_views: 1, team_view: true, ttl_hours: 0.0), alice, sreq(alice))
+    c = svc.create(input(max_views: 1, ttl_hours: 0.0), alice, sreq(alice))
     c.meta.expires_at.should be_nil
     r = svc.view_uncounted(c.id, sreq(bob), "user_view", false)
     r.counted.should be_false

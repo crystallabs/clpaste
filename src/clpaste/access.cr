@@ -47,14 +47,14 @@ module Clpaste
       meta.team_meta?
     end
 
-    # May they see the content via the uncounted peek route? Same role
-    # rules as team_meta?.
-    def self.team_view?(meta : Meta, identity : Identity?) : Bool
+    # May they see the content via the uncounted peek route? Author and
+    # admins only, each governed by the paste's view flag — other users
+    # can only retrieve the paste (counted) like any visitor.
+    def self.peek?(meta : Meta, identity : Identity?) : Bool
       return false unless identity
       return false if meta.expired?
       return true if meta.author_view? && meta.creator.downcase == identity.email.downcase
-      return true if meta.admin_view? && identity.admin?
-      meta.team_view?
+      meta.admin_view? && identity.admin?
     end
 
     # May they manage the paste (expire it, delete it)? Author and admins

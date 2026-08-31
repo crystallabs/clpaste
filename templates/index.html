@@ -109,7 +109,7 @@
           </div>
         </div>
         <div class="col-6">
-          <label class="form-label form-text-sm mb-0" for="delete_after_hours">Delete after (h, empty = never)</label>
+          <label class="form-label form-text-sm mb-0" for="delete_after_hours">Delete after (h, 0 = now, empty = never)</label>
           <div class="input-group input-group-sm">
             <input class="form-control" name="delete_after_hours" id="delete_after_hours" type="number" min="0" step="0.5" value="{{ f.delete_after_hours }}">
             <button class="btn btn-outline-secondary px-1" type="button" title="Delete right at expiry / last view" data-set="delete_after_hours" data-value="0">0</button>
@@ -177,15 +177,6 @@
         <div class="col-3"><div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" name="admin_view" id="admin_view" {% if f.admin_view %}checked{% endif %}>
           <label class="form-check-label" for="admin_view">Peek paste</label>
-        </div></div>
-      </div>
-      <div class="row g-1 form-text-sm">
-        <div class="col-3">Users can</div>
-        <div class="col-3"></div>
-        <div class="col-3"></div>
-        <div class="col-3"><div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
-          <label class="form-check-label" for="team_view">Peek paste</label>
         </div></div>
       </div>
     </div></div>

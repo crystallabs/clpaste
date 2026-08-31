@@ -21,7 +21,6 @@ module Clpaste
     property ips : Array(String) = [] of String
     property? cli_only : Bool = false
     property? team_meta : Bool = false
-    property? team_view : Bool = false
     # Per-role permissions: manage (expire/delete), the detail page
     # (metadata + audit log) and the uncounted peek. Default on; pastes
     # stored before these existed behave as before (author and admins
@@ -123,7 +122,6 @@ module Clpaste
       r.had_pin = pin?
       r.had_password = password?
       r.team_meta = team_meta?
-      r.team_view = team_view?
       r.author_meta = author_meta?
       r.author_view = author_view?
       r.author_manage = author_manage?
@@ -156,7 +154,6 @@ module Clpaste
       f << "ips" unless ips.empty?
       f << "cli" if cli_only?
       f << "team-meta" if team_meta?
-      f << "team-view" if team_view?
       f << "views:#{max_views}" if max_views
       f << "log-ips" if log_ips?
       f
