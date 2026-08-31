@@ -6,6 +6,7 @@
   <title>{% if title %}{{ title }} – {% endif %}{{ site_name }}</title>
   <link rel="stylesheet" href="/static/bootstrap.min.css">
   <link rel="stylesheet" href="/static/app.css">
+  {% block head_extra %}{% endblock %}
   <script>
     (function(){ if (document.documentElement.getAttribute('data-bs-theme') === 'auto') {
       document.documentElement.setAttribute('data-bs-theme',
@@ -13,9 +14,11 @@
   </script>
 </head>
 <body>
-<nav class="navbar navbar-expand bg-body-tertiary border-bottom mb-4">
+{# The blocks let a theme restyle the navbar without copying the whole file:
+   extend "builtin/layout.html" and override just these. #}
+<nav class="{% block navbar_class %}navbar navbar-expand bg-body-tertiary border-bottom mb-4{% endblock %}"{% block navbar_attrs %}{% endblock %}>
   <div class="container">
-    <a class="navbar-brand" href="/">{{ site_name }}</a>
+    {% block navbar_brand %}<a class="navbar-brand" href="/">{{ site_name }}</a>{% endblock %}
     <ul class="navbar-nav me-auto">
       {% if user or unprotected %}
       <li class="nav-item"><a class="nav-link" href="/">New paste</a></li>

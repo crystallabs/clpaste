@@ -266,6 +266,25 @@ Copy any of `templates/*.html` (Jinja2 syntax via Crinja) or the files under
 under `static/`); files found there win over the built-in ones. The layout
 uses Bootstrap 5.3's `data-bs-theme` for colour modes.
 
+The built-in templates also stay addressable as `builtin/<name>`, so a theme
+template that shadows a name can extend the stock one instead of forking it.
+`layout.html` exposes blocks for the usual brandings — `head_extra` (extra
+tags at the end of `<head>`), `navbar_class`, `navbar_attrs` and
+`navbar_brand` — so a themed navbar is just:
+
+```jinja
+{% extends "builtin/layout.html" %}
+{% block head_extra %}<link rel="stylesheet" href="/static/my.css">{% endblock %}
+{% block navbar_class %}navbar navbar-expand my-navbar mb-4{% endblock %}
+{% block navbar_attrs %} data-bs-theme="dark"{% endblock %}
+{% block navbar_brand %}<a class="navbar-brand" href="/">
+  <img src="/static/my-logo.svg" alt="" height="22"> {{ site_name }}</a>{% endblock %}
+```
+
+Static files referenced this way go in `CLPASTE_THEME_DIR/static/` and are
+served at `/static/<name>` (flat names; css/js/png/svg/ico get their proper
+Content-Type).
+
 ## Development
 
 ```sh

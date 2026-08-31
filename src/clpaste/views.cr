@@ -36,7 +36,12 @@ module Clpaste
         raise "theme_dir #{d} does not exist" unless Dir.exists?(d)
         loaders << Crinja::Loader::FileSystemLoader.new(d)
       end
-      loaders << Crinja::Loader::HashLoader.new(BUILTIN_TEMPLATES)
+      # Built-ins are also addressable as builtin/<name>, so a theme template
+      # that shadows a name can still build on the stock one, e.g.
+      # {% extends "builtin/layout.html" %} overriding a block or two.
+      builtins = BUILTIN_TEMPLATES.dup
+      BUILTIN_TEMPLATES.each { |name, source| builtins["builtin/#{name}"] = source }
+      loaders << Crinja::Loader::HashLoader.new(builtins)
       @env = Crinja.new
       @env.loader = Crinja::Loader::ChoiceLoader.new(loaders)
       @env.config.autoescape = true

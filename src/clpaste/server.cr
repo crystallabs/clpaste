@@ -599,12 +599,14 @@ module Clpaste
 
     # Label/value lines shown under the URL in the share box (only what is
     # set). The PIN/password values exist only at creation time — later
-    # renders (the detail page) pass nil and the lines are simply absent.
+    # renders (the detail page) pass nil, and if the paste has one, the line
+    # still appears with a placeholder so the box isn't copy/pasted as if
+    # complete.
     private def share_details(m : Meta, pin : String?, password : String?) : Array(Array(String))
       rows = [] of Array(String)
       add = ->(k : String, v : String) { rows << [(k + ":").ljust(10), v] }
-      pin.try { |value| add.call("PIN", value) }
-      password.try { |value| add.call("Password", value) }
+      add.call("PIN", pin || "(can't be displayed)") if m.pin?
+      add.call("Password", password || "(can't be displayed)") if m.password?
       add.call("Emails", m.emails.join(" ")) unless m.emails.empty?
       add.call("IPs", m.ips.join(" ")) unless m.ips.empty?
       add.call("Expires", fmt_time(m.expires_at))
