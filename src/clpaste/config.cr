@@ -43,7 +43,7 @@ module Superconf
   option "default_ttl_hours", 24.0, description: "Default expiry in hours (0 = never)"
   option "default_max_views_private", 0, description: "Default maximum views for user/admin pastes (0 = unlimited)"
   option "default_max_views_public", 1, description: "Default maximum views for guest (no-login) pastes (0 = unlimited)"
-  option "default_team_meta", true, description: "Whether 'users can see metadata & audit log' is on by default"
+  option "default_team_meta", false, description: "Whether 'users can see metadata & audit log' is on by default for API/CLI pastes (the web form no longer offers it)"
   option "default_pin", true, description: "Whether the PIN option is on by default in the form"
   option "default_max_failures", 3, description: "Default number of failed PIN/password attempts before expiry (0 = unlimited)"
   option "max_attachment_size", 100_i64 * 1024 * 1024, description: "Maximum size of a single attachment in bytes"

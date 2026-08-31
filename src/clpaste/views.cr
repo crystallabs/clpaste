@@ -4,20 +4,21 @@ module Clpaste
   # Template rendering. Built-in templates and static assets are compiled
   # into the binary; `theme_dir` may override any of them at runtime.
   class Views
-    TEMPLATE_NAMES = %w[layout.html index.html created.html gate.html paste.html
-      message.html list.html detail.html login.html cli_code.html]
+    TEMPLATE_NAMES = %w[layout.html index.html created.html share_box.html gate.html
+      paste.html message.html list.html detail.html login.html cli_code.html]
 
     BUILTIN_TEMPLATES = {
-      "layout.html"   => {{ read_file("#{__DIR__}/../../templates/layout.html") }},
-      "index.html"    => {{ read_file("#{__DIR__}/../../templates/index.html") }},
-      "created.html"  => {{ read_file("#{__DIR__}/../../templates/created.html") }},
-      "gate.html"     => {{ read_file("#{__DIR__}/../../templates/gate.html") }},
-      "paste.html"    => {{ read_file("#{__DIR__}/../../templates/paste.html") }},
-      "message.html"  => {{ read_file("#{__DIR__}/../../templates/message.html") }},
-      "list.html"     => {{ read_file("#{__DIR__}/../../templates/list.html") }},
-      "detail.html"   => {{ read_file("#{__DIR__}/../../templates/detail.html") }},
-      "login.html"    => {{ read_file("#{__DIR__}/../../templates/login.html") }},
-      "cli_code.html" => {{ read_file("#{__DIR__}/../../templates/cli_code.html") }},
+      "layout.html"    => {{ read_file("#{__DIR__}/../../templates/layout.html") }},
+      "index.html"     => {{ read_file("#{__DIR__}/../../templates/index.html") }},
+      "created.html"   => {{ read_file("#{__DIR__}/../../templates/created.html") }},
+      "share_box.html" => {{ read_file("#{__DIR__}/../../templates/share_box.html") }},
+      "gate.html"      => {{ read_file("#{__DIR__}/../../templates/gate.html") }},
+      "paste.html"     => {{ read_file("#{__DIR__}/../../templates/paste.html") }},
+      "message.html"   => {{ read_file("#{__DIR__}/../../templates/message.html") }},
+      "list.html"      => {{ read_file("#{__DIR__}/../../templates/list.html") }},
+      "detail.html"    => {{ read_file("#{__DIR__}/../../templates/detail.html") }},
+      "login.html"     => {{ read_file("#{__DIR__}/../../templates/login.html") }},
+      "cli_code.html"  => {{ read_file("#{__DIR__}/../../templates/cli_code.html") }},
     }
 
     BUILTIN_STATIC = {

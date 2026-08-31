@@ -412,7 +412,7 @@ module Clpaste
       "log_ips"             => false,
       "delete_on_retrieval" => false,
       "author_meta"         => true,
-      "author_view"         => false,
+      "author_view"         => true,
       "author_manage"       => true,
       "admin_meta"          => true,
       "admin_view"          => false,
@@ -600,17 +600,18 @@ module Clpaste
       end
     end
 
-    # Label/value lines shown under the URL on the created page (only what is set).
-    private def created_details(c : Service::Created) : Array(Array(String))
-      m = c.meta
+    # Label/value lines shown under the URL in the share box (only what is
+    # set). The PIN/password values exist only at creation time — later
+    # renders (the detail page) pass nil and the lines are simply absent.
+    private def share_details(m : Meta, pin : String?, password : String?) : Array(Array(String))
       rows = [] of Array(String)
       add = ->(k : String, v : String) { rows << [(k + ":").ljust(10), v] }
-      c.pin.try { |pin| add.call("PIN", pin) }
-      c.password.try { |password| add.call("Password", password) }
+      pin.try { |value| add.call("PIN", value) }
+      password.try { |value| add.call("Password", value) }
       add.call("Emails", m.emails.join(" ")) unless m.emails.empty?
       add.call("IPs", m.ips.join(" ")) unless m.ips.empty?
-      add.call("Views", m.max_views.try { |v| "max #{v}" } || "unlimited")
       add.call("Expires", fmt_time(m.expires_at))
+      add.call("Views", m.max_views.try { |v| "max #{v}" } || "unlimited")
       add.call("Failures", "expires after #{m.max_failures} failed attempts") if m.max_failures > 0
       m.delete_desc.try { |desc| add.call("Delete", desc) }
       add.call("CLI only", "yes") if m.cli_only?
@@ -625,7 +626,7 @@ module Clpaste
 
     private def created_vars(req : Req, c : Service::Created)
       {
-        "details"     => created_details(c),
+        "details"     => share_details(c.meta, c.pin, c.password),
         "title"       => "Paste created",
         "id"          => c.id,
         "id_fmt"      => Ids.format(c.id),
@@ -764,7 +765,7 @@ module Clpaste
     private def perm_desc(meta_ok : Bool, view_ok : Bool, manage_ok : Bool? = nil) : String
       granted = [] of String
       granted << "manage" if manage_ok
-      granted << "see meta & audit" if meta_ok
+      granted << "see metadata" if meta_ok
       granted << "peek paste" if view_ok
       granted.empty? ? "nothing" : granted.join(", ")
     end
@@ -820,7 +821,18 @@ module Clpaste
       log = @repo.log_for(id).map do |e|
         {"at" => fmt_time(e.at), "action" => e.action, "identity" => e.identity || "", "ip" => e.ip || "", "channel" => e.channel, "detail" => e.detail || ""}
       end
-      render(req, "detail.html", common.merge({"denied" => false, "settings" => settings, "log" => log}))
+      share = if can_view
+                {
+                  "share"       => true,
+                  "url"         => req.url("/p/#{Ids.format(id)}"),
+                  "details"     => share_details(meta, nil, nil),
+                  "attachments" => meta.attachments.map { |a| {"name" => a.name, "size" => a.size} },
+                  "flags"       => meta.flags,
+                }
+              else
+                {"share" => false}
+              end
+      render(req, "detail.html", common.merge(share).merge({"denied" => false, "settings" => settings, "log" => log}))
     rescue e : Service::Error
       e.code == "need_login" ? unauthenticated(req) : raise e
     end

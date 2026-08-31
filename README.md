@@ -206,9 +206,10 @@ Notable ones:
   without counting a view; they are logged. What a role may do — manage
   the paste (expire/delete), open its settings + log page, peek — is set
   per paste on the Permissions card, separately for the author, for
-  admins and for users (other signed-in people; users cannot manage).
-  Defaults: author and admins may manage and see meta & audit, nobody
-  may peek. There are no built-in exemptions: a paste that grants admins
+  admins and for users (other signed-in people; users can only be
+  granted peek). Defaults: the author may do all three, admins may
+  manage and see metadata, users nothing. There are no built-in
+  exemptions: a paste that grants admins
   nothing shows admins nothing beyond its `/pastes` list row. Someone
   holding manage but not meta gets a friendly page with just the
   Expire/Delete buttons. With `admin_domains` set, plain users only
@@ -306,7 +307,7 @@ Server options (flags for `clpaste serve`; also environment variables, or keys i
   --default-max-views-private VALUE             CLPASTE_DEFAULT_MAX_VIEWS_PRIVATE  Default maximum views for user/admin pastes (0 = unlimited) [default: 0]
   --default-max-views-public VALUE              CLPASTE_DEFAULT_MAX_VIEWS_PUBLIC   Default maximum views for guest (no-login) pastes (0 = unlimited) [default: 1]
   --default-pin / --no-default-pin              CLPASTE_DEFAULT_PIN                Whether the PIN option is on by default in the form [default: true]
-  --default-team-meta / --no-default-team-meta  CLPASTE_DEFAULT_TEAM_META          Whether 'users can see metadata & audit log' is on by default [default: true]
+  --default-team-meta / --no-default-team-meta  CLPASTE_DEFAULT_TEAM_META          Whether 'users can see metadata & audit log' is on by default for API/CLI pastes (the web form no longer offers it) [default: false]
   --default-ttl-hours VALUE                     CLPASTE_DEFAULT_TTL_HOURS          Default expiry in hours (0 = never) [default: 24.0]
   --id-digits VALUE                             CLPASTE_ID_DIGITS                  Number of decimal digits in paste IDs [default: 9]
   --key-file VALUE                              CLPASTE_KEY_FILE                   Where the master key is stored/generated when master_key is not set [default: clpaste.key]
@@ -364,7 +365,7 @@ Text is read from stdin unless --text is given.
     --delete-after HOURS             Delete the paste record (incl. audit log) this many hours after expiry (0 = at once; default: never)
     --delete-on-retrieval            Anchor deletion to views instead: each counted view restarts the timer (0 = delete when viewed)
     --cli-only                       Viewable only via CLI
-    --team-meta                      Users may see metadata & audit log (server default: on)
+    --team-meta                      Users may see metadata & audit log (server default: off)
     --no-team-meta                   Hide metadata & audit log from other users
     --team-view                      Users may peek the content (uncounted, logged)
     --no-author-meta                 Author may not see metadata & audit log (default: may)

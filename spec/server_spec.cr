@@ -178,8 +178,8 @@ describe Clpaste::Server do
     r.body.should_not contain(">password<")
     r.body.should_not contain("team-meta") # web form: unchecked box => off
     home = b.get("/").body
-    home.should contain(%(id="team_meta" checked)) # ...but the form defaults it on
-    r.body.should contain("views:1")               # public default when the field is absent
+    home.should contain(%(id="author_meta" checked)) # ...but the form defaults its boxes on
+    r.body.should contain("views:1")                 # public default when the field is absent
     id2 = r.body.match!(/\/p\/([0-9-]+)/)[1]
     b.multipart("/paste", {"text" => "priv default", "visibility" => "private", "pin_enabled" => ""}).body.should_not contain("views:") # private default: unlimited
     anon.get("/p/#{id2}").status_code.should eq(403)
@@ -278,10 +278,18 @@ describe Clpaste::Server do
       f = {"text" => "locked", "visibility" => "public", "pin_enabled" => "", "ttl_hours" => "1", "max_views" => ""}.merge(extra)
       alice.multipart("/paste", f).body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
     end
-    # Form defaults: author sees meta & audit but cannot peek.
+    # An author granted meta but not peek cannot peek — and the share box
+    # (gated by the peek permission) is absent from the detail page.
     id = mk.call({"author_meta" => "on", "author_manage" => "on"})
-    alice.get("/pastes/#{id}").status_code.should eq(200)
+    d = alice.get("/pastes/#{id}")
+    d.status_code.should eq(200)
+    d.body.should_not contain("Share this link")
     alice.get("/pastes/#{id}/view").status_code.should eq(403)
+    # With peek granted, the detail page shows the share box with the URL link.
+    id_peek = mk.call({"author_meta" => "on", "author_manage" => "on", "author_view" => "on"})
+    d = alice.get("/pastes/#{id_peek}")
+    d.body.should contain("Share this link")
+    d.body.should contain(%(<a href="http://127.0.0.1))
     # An author who unchecks their own meta box loses the detail page and
     # the list row, but keeps the granted manage actions.
     id2 = mk.call({"author_manage" => "on"})
@@ -501,7 +509,7 @@ describe Clpaste::Server do
       form.status_code.should eq(200)
       form.body.should contain("Create paste")
       form.body.should_not contain(%(id="vis_private"))
-      form.body.should_not contain(%(name="team_meta"))
+      form.body.should_not contain(%(name="team_view"))
       # Private/team settings sent anyway are ignored: the paste comes out public and team-less.
       r = anon.multipart("/paste", {"text" => "open", "visibility" => "private", "team_meta" => "true", "pin" => "", "max_views" => "5"})
       r.status_code.should eq(200)
@@ -550,7 +558,7 @@ describe Clpaste::Server do
       form.status_code.should eq(200)
       form.body.should contain("Create paste")
       form.body.should contain(%(id="vis_users")) # visibility still theirs to choose
-      form.body.should_not contain(%(name="team_meta"))
+      form.body.should_not contain(%(name="team_view"))
       form.body.should_not contain(%(href="/pastes"))
       r = user.multipart("/paste", {"text" => "plain", "visibility" => "private", "team_meta" => "true", "team_view" => "true", "pin" => "", "max_views" => "0"})
       r.status_code.should eq(200)
@@ -568,7 +576,7 @@ describe Clpaste::Server do
       meta.team_meta?.should be_false
       meta.team_view?.should be_false
       # In-domain admins keep the team options, in the form and on create.
-      root.get("/").body.should contain(%(name="team_meta"))
+      root.get("/").body.should contain(%(name="team_view"))
       r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "team_view" => "on", "pin" => "", "max_views" => "", "ttl_hours" => "",
                                      "emails" => "bob eve@other.example"})
       id2 = must(r2.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]

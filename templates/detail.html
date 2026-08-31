@@ -21,6 +21,7 @@
     </tbody></table></div>
   </div>
   <div class="col-lg-7">
+    {% if share %}{% include "share_box.html" %}{% endif %}
     <div class="card"><div class="card-header ps-1">Audit log <span class="badge text-bg-secondary">{{ log | length }}</span></div>
     <div class="table-responsive"><table class="table table-sm log mb-0">
       <thead><tr><th>Timestamp (UTC)</th><th>Action</th><th>Who</th><th>IP</th><th>Via</th><th>Detail</th></tr></thead>

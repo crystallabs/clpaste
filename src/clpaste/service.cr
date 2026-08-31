@@ -40,7 +40,7 @@ module Clpaste
       log_ips : Bool,
       max_failures : Int32,
       author_meta : Bool = true,
-      author_view : Bool = false,
+      author_view : Bool = true,
       author_manage : Bool = true,
       admin_meta : Bool = true,
       admin_view : Bool = false,
