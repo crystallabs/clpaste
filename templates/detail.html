@@ -10,6 +10,9 @@
     {% if can_delete %}<form class="d-inline" method="post" action="{{ delete_href }}" onsubmit="return confirm('Delete this paste permanently, including its audit log?')"><button class="btn btn-sm btn-danger">Delete</button></form>{% endif %}
   </div>
 </div>
+{% if denied %}
+<div class="alert alert-warning mt-3">Seeing this paste's metadata and audit log is not possible: the paste does not grant that to you.{% if can_view or can_expire or can_delete %} The buttons above show what you can do with it.{% endif %}</div>
+{% else %}
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="card"><div class="card-header ps-1">Settings</div>
@@ -31,4 +34,5 @@
     </table></div></div>
   </div>
 </div>
+{% endif %}
 {% endblock %}

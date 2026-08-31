@@ -50,7 +50,7 @@
         </div>
       </div>
       <div class="mt-2" id="emails_row">
-        <label class="form-label form-text-sm mb-0" for="emails">Restrict to these emails <span class="text-secondary">(empty = unrestricted)</span></label>
+        <label class="form-label form-text-sm mb-0" for="emails">Restrict to these emails <span class="text-secondary">(empty = unrestricted{% if email_domain %}, no @ = @{{ email_domain }}{% endif %})</span></label>
         <input class="form-control form-control-sm" name="emails" id="emails" value="{{ f.emails }}" placeholder="E.g. alice@example.com bob@example.com">
       </div>
     </div></div>
@@ -151,35 +151,44 @@
       <h2 class="h6">Permissions <span class="text-secondary form-text-sm fw-normal">— peek = uncounted but logged view</span></h2>
       <div class="row g-1 form-text-sm">
         <div class="col-3">Author can</div>
-        <div class="col-5"><div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" name="author_meta" id="author_meta" {% if f.author_meta %}checked{% endif %}>
-          <label class="form-check-label" for="author_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+        <div class="col-3"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="author_manage" id="author_manage" {% if f.author_manage %}checked{% endif %}>
+          <label class="form-check-label" for="author_manage" title="Expire and delete the paste">Manage paste</label>
         </div></div>
-        <div class="col-4"><div class="form-check mb-0">
+        <div class="col-3"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="author_meta" id="author_meta" {% if f.author_meta %}checked{% endif %}>
+          <label class="form-check-label" for="author_meta" title="Metadata and audit log on the paste detail page">See meta &amp; audit</label>
+        </div></div>
+        <div class="col-3"><div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" name="author_view" id="author_view" {% if f.author_view %}checked{% endif %}>
-          <label class="form-check-label" for="author_view">peek paste</label>
+          <label class="form-check-label" for="author_view">Peek paste</label>
         </div></div>
       </div>
       <div class="row g-1 form-text-sm">
         <div class="col-3">Admins can</div>
-        <div class="col-5"><div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" name="admin_meta" id="admin_meta" {% if f.admin_meta %}checked{% endif %}>
-          <label class="form-check-label" for="admin_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+        <div class="col-3"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="admin_manage" id="admin_manage" {% if f.admin_manage %}checked{% endif %}>
+          <label class="form-check-label" for="admin_manage" title="Expire and delete the paste">Manage paste</label>
         </div></div>
-        <div class="col-4"><div class="form-check mb-0">
+        <div class="col-3"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="admin_meta" id="admin_meta" {% if f.admin_meta %}checked{% endif %}>
+          <label class="form-check-label" for="admin_meta" title="Metadata and audit log on the paste detail page">See meta &amp; audit</label>
+        </div></div>
+        <div class="col-3"><div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" name="admin_view" id="admin_view" {% if f.admin_view %}checked{% endif %}>
-          <label class="form-check-label" for="admin_view">peek paste</label>
+          <label class="form-check-label" for="admin_view">Peek paste</label>
         </div></div>
       </div>
       <div class="row g-1 form-text-sm">
         <div class="col-3">Users can</div>
-        <div class="col-5"><div class="form-check mb-0">
+        <div class="col-3"></div>
+        <div class="col-3"><div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" name="team_meta" id="team_meta" {% if f.team_meta %}checked{% endif %}>
-          <label class="form-check-label" for="team_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+          <label class="form-check-label" for="team_meta" title="Metadata and audit log on the paste detail page">See meta &amp; audit</label>
         </div></div>
-        <div class="col-4"><div class="form-check mb-0">
+        <div class="col-3"><div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
-          <label class="form-check-label" for="team_view">peek paste</label>
+          <label class="form-check-label" for="team_view">Peek paste</label>
         </div></div>
       </div>
     </div></div>

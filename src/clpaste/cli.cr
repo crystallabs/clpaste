@@ -279,8 +279,10 @@ module Clpaste
         parser.on("--team-view", "Users may peek the content (uncounted, logged)") { fields["team_view"] = "true" }
         parser.on("--no-author-meta", "Author may not see metadata & audit log (default: may)") { fields["author_meta"] = "false" }
         parser.on("--author-view", "Author may peek the content (default: not)") { fields["author_view"] = "true" }
+        parser.on("--no-author-manage", "Author may not expire/delete the paste (default: may)") { fields["author_manage"] = "false" }
         parser.on("--no-admin-meta", "Admins may not see metadata & audit log (default: may)") { fields["admin_meta"] = "false" }
         parser.on("--admin-view", "Admins may peek the content (default: not)") { fields["admin_view"] = "true" }
+        parser.on("--no-admin-manage", "Admins may not expire/delete the paste (default: may)") { fields["admin_manage"] = "false" }
         parser.on("--log-ips", "Record viewer IPs in the audit log") { fields["log_ips"] = "true" }
         parser.on("--json", "Machine-readable output") { as_json = true }
         parser.on("-h", "--help", "Help") { puts parser; exit }

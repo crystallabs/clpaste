@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Specs & lint (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:1.20
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clpaste
+          POSTGRES_PASSWORD: clpastepw
+          POSTGRES_DB: clpaste_spec
+        options: >-
+          --health-cmd "pg_isready -U clpaste"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: apt-get update && apt-get install -y --no-install-recommends
+          pkg-config libssl-dev libsqlite3-dev libxml2-dev libyaml-dev libpcre2-dev
+      - name: Install shards
+        run: shards install
+      - name: Run specs
+        run: crystal spec
+        env:
+          CLPASTE_SPEC_DB_URL: ${{ matrix.db == 'postgres' && 'postgres://clpaste:clpastepw@postgres/clpaste_spec' || '' }}
+          CLPASTE_SPEC_PG_HOST: ${{ matrix.db == 'postgres' && 'postgres' || '' }}
+          CLPASTE_SPEC_PG_PASSWORD: ${{ matrix.db == 'postgres' && 'clpastepw' || '' }}
+      - name: Lint
+        run: bin/ameba
+
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f docker/Dockerfile
+          --build-arg GIT_SHA=$(git rev-parse --short HEAD)
+          -t clpaste:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name clpaste -p 8080:8080 clpaste:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/healthz && exit 0
+            sleep 1
+          done
+          docker logs clpaste
+          exit 1

@@ -134,7 +134,7 @@ describe Clpaste::Server do
     v.status_code.should eq(302)
     v.headers["Location"].should eq("/p/123-456-789")
     b.get("/view?id=12").status_code.should eq(400)
-    b.get("/healthz").body.should eq("ok")
+    b.get("/healthz").body.should eq("ok clpaste #{Clpaste::VERSION} #{Clpaste::GIT_SHA}")
     b.get("/pastes").status_code.should eq(302)
     b.get("/api/pastes").status_code.should eq(404)
   end
@@ -201,9 +201,9 @@ describe Clpaste::Server do
     alice.login
     r = alice.multipart("/paste", {"text" => "for the team", "visibility" => "private", "pin_enabled" => "", "team_meta" => "on", "team_view" => "on", "password_enabled" => "", "ttl_hours" => "2"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
-    # The author grants admins metadata + peek (no built-in admin exemption any more).
+    # The author grants admins everything (no built-in admin exemption any more).
     r = alice.multipart("/paste", {"text" => "mine only", "visibility" => "private", "pin_enabled" => "", "ttl_hours" => "2", "max_views" => "",
-                                   "admin_meta" => "on", "admin_view" => "on"})
+                                   "admin_meta" => "on", "admin_view" => "on", "admin_manage" => "on"})
     id_private = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
 
     idp.email = "bob@example.com"
@@ -251,7 +251,7 @@ describe Clpaste::Server do
     alice = Browser.new(base)
     alice.login
     r = alice.multipart("/paste", {"text" => "deletable", "visibility" => "public", "pin_enabled" => "",
-                                   "ttl_hours" => "1", "max_views" => ""})
+                                   "ttl_hours" => "1", "max_views" => "", "author_manage" => "on"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
     # another (non-admin) user may not delete it
     idp.email = "bob@example.com"
@@ -263,11 +263,52 @@ describe Clpaste::Server do
     alice.get("/pastes/#{id}").status_code.should eq(404)
     # an expired paste can still be deleted (residual meta keeps the creator)
     r = alice.multipart("/paste", {"text" => "deletable too", "visibility" => "public", "pin_enabled" => "",
-                                   "ttl_hours" => "1", "max_views" => ""})
+                                   "ttl_hours" => "1", "max_views" => "", "author_manage" => "on"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
     alice.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(303)
     alice.post("/pastes/#{id}/delete", {} of String => String).status_code.should eq(303)
     alice.get("/pastes/#{id}").status_code.should eq(404)
+  end
+
+  it "enforces per-paste permissions with no built-in author/admin exemptions" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    mk = ->(extra : Hash(String, String)) do
+      f = {"text" => "locked", "visibility" => "public", "pin_enabled" => "", "ttl_hours" => "1", "max_views" => ""}.merge(extra)
+      alice.multipart("/paste", f).body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
+    end
+    # Form defaults: author sees meta & audit but cannot peek.
+    id = mk.call({"author_meta" => "on", "author_manage" => "on"})
+    alice.get("/pastes/#{id}").status_code.should eq(200)
+    alice.get("/pastes/#{id}/view").status_code.should eq(403)
+    # An author who unchecks their own meta box loses the detail page and
+    # the list row, but keeps the granted manage actions.
+    id2 = mk.call({"author_manage" => "on"})
+    denied = alice.get("/pastes/#{id2}")
+    denied.status_code.should eq(403)
+    denied.body.should contain("not possible")
+    denied.body.should contain(">Expire<")
+    denied.body.should contain(">Delete<")
+    alice.get("/pastes").body.should_not contain(Clpaste::Ids.format(id2))
+    # A paste granting admins nothing shows admins nothing.
+    id3 = mk.call({} of String => String)
+    idp.email = "root@example.com"
+    idp.groups = ["clpaste-admins"]
+    root = Browser.new(base)
+    root.login
+    root.get("/pastes/#{id3}").status_code.should eq(403)
+    root.get("/pastes/#{id3}/admin-view").status_code.should eq(403)
+    root.post("/pastes/#{id3}/expire", {} of String => String).status_code.should eq(403)
+    root.post("/pastes/#{id3}/delete", {} of String => String).status_code.should eq(403)
+    # Manage without meta: the friendly denial page still offers the buttons.
+    idp.email = "alice@example.com"
+    id4 = mk.call({"admin_manage" => "on"})
+    d4 = root.get("/pastes/#{id4}")
+    d4.status_code.should eq(403)
+    d4.body.should contain(">Expire<")
+    root.post("/pastes/#{id4}/expire", {} of String => String).status_code.should eq(303)
+    idp.groups = [] of String
   end
 
   it "gates Find on admin, hides Home on expired pastes, and honours show_meta/show_version" do
@@ -275,7 +316,7 @@ describe Clpaste::Server do
     alice = Browser.new(base)
     alice.login
     r = alice.multipart("/paste", {"text" => "findable", "visibility" => "public", "pin_enabled" => "",
-                                   "ttl_hours" => "1", "max_views" => "", "admin_meta" => "on", "admin_view" => "on"})
+                                   "ttl_hours" => "1", "max_views" => "", "admin_meta" => "on", "admin_view" => "on", "admin_manage" => "on"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
 
     # Non-admins get the navbar View box (to /view); Find and /open are admin-only.
@@ -528,11 +569,14 @@ describe Clpaste::Server do
       meta.team_view?.should be_false
       # In-domain admins keep the team options, in the form and on create.
       root.get("/").body.should contain(%(name="team_meta"))
-      r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "team_view" => "on", "pin" => "", "max_views" => "", "ttl_hours" => ""})
+      r2 = root.multipart("/paste", {"text" => "shared", "visibility" => "users", "team_meta" => "on", "team_view" => "on", "pin" => "", "max_views" => "", "ttl_hours" => "",
+                                     "emails" => "bob eve@other.example"})
       id2 = must(r2.body.match(/\/p\/(\d{3}-\d{3}-\d{3})/))[1]
       meta2 = must(svc.meta_for(must(Clpaste::Ids.normalize(id2))))[1]
       meta2.team_meta?.should be_true
       meta2.team_view?.should be_true
+      # A bare account name is completed with the first admin domain.
+      meta2.emails.should eq(["bob@example.org", "eve@other.example"])
     ensure
       Superconf.admin_domains = ""
     end

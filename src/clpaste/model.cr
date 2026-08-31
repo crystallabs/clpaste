@@ -22,13 +22,16 @@ module Clpaste
     property? cli_only : Bool = false
     property? team_meta : Bool = false
     property? team_view : Bool = false
-    # Per-role permissions for the detail page (metadata + audit log) and the
-    # uncounted peek. Default on; pastes stored before these existed behave
-    # as before (author and admins allowed).
+    # Per-role permissions: manage (expire/delete), the detail page
+    # (metadata + audit log) and the uncounted peek. Default on; pastes
+    # stored before these existed behave as before (author and admins
+    # allowed).
     property? author_meta : Bool = true
     property? author_view : Bool = true
+    property? author_manage : Bool = true
     property? admin_meta : Bool = true
     property? admin_view : Bool = true
+    property? admin_manage : Bool = true
     property? log_ips : Bool = false
     property max_failures : Int32 = 0
     property text_size : Int64 = 0
@@ -123,8 +126,10 @@ module Clpaste
       r.team_view = team_view?
       r.author_meta = author_meta?
       r.author_view = author_view?
+      r.author_manage = author_manage?
       r.admin_meta = admin_meta?
       r.admin_view = admin_view?
+      r.admin_manage = admin_manage?
       r.log_ips = log_ips?
       r.delete_after_hours = delete_after_hours
       r.delete_on_retrieval = delete_on_retrieval?

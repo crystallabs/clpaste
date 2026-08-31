@@ -41,8 +41,10 @@ module Clpaste
       max_failures : Int32,
       author_meta : Bool = true,
       author_view : Bool = false,
+      author_manage : Bool = true,
       admin_meta : Bool = true,
       admin_view : Bool = false,
+      admin_manage : Bool = true,
       delete_after_hours : Float64? = nil,
       delete_on_retrieval : Bool = false
 
@@ -154,8 +156,10 @@ module Clpaste
       meta.team_view = input.team_view
       meta.author_meta = input.author_meta
       meta.author_view = input.author_view
+      meta.author_manage = input.author_manage
       meta.admin_meta = input.admin_meta
       meta.admin_view = input.admin_view
+      meta.admin_manage = input.admin_manage
       meta.log_ips = input.log_ips
       meta.max_failures = {input.max_failures, 0}.max
       meta.delete_after_hours = input.delete_after_hours.try { |hours| hours >= 0 ? hours : nil }

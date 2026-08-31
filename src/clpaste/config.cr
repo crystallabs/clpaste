@@ -68,7 +68,10 @@ module Superconf
 end
 
 module Clpaste
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
+  # Compile-time git revision: CLPASTE_GIT_SHA when set (Docker builds pass
+  # it, since the image has no .git), else asked from git directly.
+  GIT_SHA = {{ env("CLPASTE_GIT_SHA") || `git rev-parse --short HEAD 2>/dev/null || echo unknown`.strip.stringify }}
 
   module Config
     # Naming only (needed before printing help); no sources are loaded.
@@ -93,6 +96,17 @@ module Clpaste
 
     def self.admin_domains : Array(String)
       list(Superconf.admin_domains).map(&.downcase.lstrip('@'))
+    end
+
+    # First admin domain, if any: bare account names in email restrictions
+    # are completed with it ("bob" => "bob@example.org").
+    def self.default_email_domain : String?
+      admin_domains.first?
+    end
+
+    def self.expand_emails(emails : Array(String)) : Array(String)
+      domain = default_email_domain || return emails
+      emails.map { |email| email.includes?('@') ? email : "#{email}@#{domain}" }
     end
 
     # Admin rules for OIDC users, any of which suffices: listed email, listed

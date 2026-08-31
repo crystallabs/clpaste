@@ -21,10 +21,12 @@ admins) and **guests** (not signed in).
 * **Per-paste protection:** PIN (default on), password, max views,
   expiry time, guest/user/admin visibility with an optional email
   restriction, IP/CIDR allowlist, CLI-only, expiry after N failed attempts.
-* **Per-role permissions:** the author decides, per paste, whether the
-  author, admins and other signed-in users may see its metadata & audit
-  log, and/or peek at the content without consuming a view (logged).
-  No built-in exemptions — even admins only see what the paste grants.
+* **Per-role permissions:** the author decides, per paste, what the
+  author, admins and other signed-in users may do with it — manage it
+  (expire/delete; author and admins only), see its metadata & audit log,
+  and/or peek at the content without consuming a view (logged). No
+  built-in exemptions — even admins only get what the paste grants
+  (since 0.3.0; before that the author and admins were always exempt).
 * **Audit log** of who viewed what and when (identity from OIDC when
   available; IPs only if the author opted in). The log outlives the paste
   (until deletion, if the paste has it set).
@@ -33,8 +35,8 @@ admins) and **guests** (not signed in).
 * **Deletion** (optional): unlike expiry, removes every trace — record,
   metadata and audit log — N hours after expiry, or, anchored to views
   instead, N hours after the last counted view (0 = the moment it is
-  viewed). The author or an admin can also delete a paste at any time
-  from its settings + log page.
+  viewed). Whoever holds the paste's manage permission can also expire
+  or delete it at any time from its settings + log page.
 * **Pastes page:** users see their own and shared pastes with protection
   badges; admins see every paste, get Peek as admin / View / Expire /
   Delete on the per-paste settings + log page. The navbar ID box says
@@ -167,6 +169,8 @@ Notable ones:
   on OIDC login (any rule suffices). With `admin_domains` set, every other
   signed-in user is a *plain user*: they may create pastes and view them
   like any guest, but the permission options and the `/pastes` pages are gone.
+  The first admin domain also completes bare account names in email
+  restrictions ("bob" means bob@your-first-domain).
 * `default_max_views_public` / `_private` (`1` / unlimited),
   `default_ttl_hours` (`24`), `default_pin` (on), `default_max_failures`
   (`3`) — what the form and CLI start with.
@@ -199,17 +203,19 @@ Notable ones:
   (per client IP per minute, default 10; admins are exempt), so the ID
   space cannot be scanned.
 * **Peeks** (`/pastes/ID/view`, `/pastes/ID/admin-view`) show the content
-  without counting a view; they are logged. Who may open a paste's
-  settings + log page and who may peek is set per paste on the
-  Permissions card, separately for the author, for admins and for users
-  (other signed-in people). Defaults: author and admins may view
-  metadata, nobody may peek. There are no built-in exemptions: a paste
-  that grants admins nothing shows admins nothing (they still see it in
-  the `/pastes` list and may expire or delete it). With `admin_domains`
-  set, plain users only create and view; the permission options are
-  admin-only. (Audit rows written before 0.2.0 use the old action names
-  `team_meta`/`team_view` and creator `anonymous` instead of
-  `user_meta`/`user_view` and `guest`.)
+  without counting a view; they are logged. What a role may do — manage
+  the paste (expire/delete), open its settings + log page, peek — is set
+  per paste on the Permissions card, separately for the author, for
+  admins and for users (other signed-in people; users cannot manage).
+  Defaults: author and admins may manage and see meta & audit, nobody
+  may peek. There are no built-in exemptions: a paste that grants admins
+  nothing shows admins nothing beyond its `/pastes` list row. Someone
+  holding manage but not meta gets a friendly page with just the
+  Expire/Delete buttons. With `admin_domains` set, plain users only
+  create and view; the permission options are admin-only. (Audit rows
+  written before 0.2.0 use the old action names `team_meta`/`team_view`
+  and creator `anonymous` instead of `user_meta`/`user_view` and
+  `guest`.)
 * **Expiry** deletes the body, the wrapped key and the PIN/password
   secrets; the descriptive settings, counters and the audit log survive
   (until deletion), so the settings + log page reads the same for expired
@@ -230,6 +236,9 @@ Notable ones:
   TLS, so its `iss`/`aud`/`exp`/`nonce` are validated and identity is
   confirmed via `userinfo` (OIDC Core §3.1.3.7 permits skipping signature
   verification in this case).
+* **`/healthz`** answers `ok clpaste <version> <git-sha>`, so you can
+  always check what a running instance was built from (the footer's
+  version number carries the same sha in its tooltip).
 * **Limits of "CLI-only"**: it is enforced by requiring the
   `X-Clpaste-Client` header, which any HTTP client can send. Treat it as a
   convenience to keep casual browser access out, not as a security boundary.
@@ -260,7 +269,7 @@ AGPL-3.0 — see [LICENSE](LICENSE).
 ## Reference: `clpaste --help`
 
 ```
-clpaste 0.2.0 — encrypted paste service
+clpaste 0.3.0 — encrypted paste service
 
 Usage: clpaste <command> [options]
 
@@ -360,8 +369,10 @@ Text is read from stdin unless --text is given.
     --team-view                      Users may peek the content (uncounted, logged)
     --no-author-meta                 Author may not see metadata & audit log (default: may)
     --author-view                    Author may peek the content (default: not)
+    --no-author-manage               Author may not expire/delete the paste (default: may)
     --no-admin-meta                  Admins may not see metadata & audit log (default: may)
     --admin-view                     Admins may peek the content (default: not)
+    --no-admin-manage                Admins may not expire/delete the paste (default: may)
     --log-ips                        Record viewer IPs in the audit log
     --json                           Machine-readable output
     -h, --help                       Help

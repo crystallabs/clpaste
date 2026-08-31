@@ -157,7 +157,7 @@ module Clpaste
       # Tuple#=== matches element-wise (String === "x"), unlike Array.
       case {m, p.size, p[0]?, p[1]?, p[2]?, p[3]?}
       when {"GET", 0, nil, nil, nil, nil}                                                                    then home(req)
-      when {"GET", 1, "healthz", nil, nil, nil}                                                              then text(req.ctx, "ok")
+      when {"GET", 1, "healthz", nil, nil, nil}                                                              then text(req.ctx, "ok clpaste #{VERSION} #{GIT_SHA}")
       when {"GET", 2, "static", String, nil, nil}                                                            then static(req, p[1])
       when {"GET", 1, "login", nil, nil, nil}                                                                then login(req)
       when {"GET", 2, "auth", "callback", nil, nil}                                                          then callback(req)
@@ -200,6 +200,7 @@ module Clpaste
         "site_name"    => Superconf.site_name,
         "color_mode"   => Superconf.color_mode,
         "version"      => VERSION,
+        "git_sha"      => GIT_SHA,
         "show_meta"    => Superconf.show_meta,
         "show_version" => Superconf.show_version,
         "id_digits"    => Superconf.id_digits,
@@ -207,6 +208,7 @@ module Clpaste
         "oidc"         => @oidc.configured?,
         "unprotected"  => unprotected?,
         "team"         => !Config.plain_users?,
+        "email_domain" => Config.default_email_domain,
       })
     end
 
@@ -340,10 +342,9 @@ module Clpaste
         fields["team_meta"] = "false"
         fields["team_view"] = "false"
         # The Permissions card is hidden for these users: keep the defaults.
-        fields["author_meta"] = "true"
-        fields["author_view"] = "false"
-        fields["admin_meta"] = "true"
-        fields["admin_view"] = "false"
+        FORM_CHECKBOXES.each do |key, val|
+          fields[key] = val.to_s if key.starts_with?("author_") || key.starts_with?("admin_")
+        end
       end
       return unless unprotected?
       rate_check!(req)
@@ -399,17 +400,42 @@ module Clpaste
       end
     end
 
+    # The form's checkbox fields with their creation defaults — the one
+    # source of truth. HTML sends nothing for an unchecked box, so
+    # create_web fills the gaps with "false" (the form always shows these),
+    # restrict_fields! restores the defaults for fields whose card was
+    # hidden, and the API/CLI get the default when a field is absent.
+    # team_meta is special: its default comes from configuration.
+    FORM_CHECKBOXES = {
+      "cli_only"            => false,
+      "team_view"           => false,
+      "log_ips"             => false,
+      "delete_on_retrieval" => false,
+      "author_meta"         => true,
+      "author_view"         => false,
+      "author_manage"       => true,
+      "admin_meta"          => true,
+      "admin_view"          => false,
+      "admin_manage"        => true,
+    }
+
+    # Checkbox value for Service::Input: absent (API/CLI) = the default.
+    private def checkbox(f : Hash(String, String), key : String) : Bool
+      f.has_key?(key) ? truthy?(f[key]) : FORM_CHECKBOXES[key]
+    end
+
     private def default_form(team : Bool) : Hash(String, String | Bool)
-      Hash(String, String | Bool){
+      f = Hash(String, String | Bool){
         "title" => "", "text" => "", "visibility" => "guests", "emails" => "", "ips" => "",
         "pin" => Superconf.default_pin ? random_pin : "", "password" => "",
         "max_views" => default_max_views_str("guests"),
         "ttl_hours" => Superconf.default_ttl_hours > 0 ? Superconf.default_ttl_hours.to_s.sub(/\.0$/, "") : "",
         "max_failures" => Superconf.default_max_failures > 0 ? Superconf.default_max_failures.to_s : "",
-        "delete_after_hours" => "72", "delete_on_retrieval" => false,
-        "cli_only" => false, "team_meta" => Superconf.default_team_meta && team, "team_view" => false, "log_ips" => false,
-        "author_meta" => true, "author_view" => false, "admin_meta" => true, "admin_view" => false,
+        "delete_after_hours" => "72",
+        "team_meta" => Superconf.default_team_meta && team,
       }
+      FORM_CHECKBOXES.each { |key, val| f[key] = val }
+      f
     end
 
     private def form_vars(f, error : String? = nil)
@@ -530,23 +556,25 @@ module Clpaste
         text: f["text"]?.to_s,
         files: files,
         visibility: f["visibility"]? || "guests",
-        emails: Config.list(f["emails"]?.to_s),
+        emails: Config.expand_emails(Config.list(f["emails"]?.to_s)),
         ips: Config.list(f["ips"]?.to_s),
         pin: pin,
         password: password,
         max_views: max_views,
         ttl_hours: ttl,
-        cli_only: truthy?(f["cli_only"]?),
-        team_meta: f.has_key?("team_meta") ? truthy?(f["team_meta"]) : Superconf.default_team_meta, # absent (API/CLI) => default; web form always sends it
-        team_view: truthy?(f["team_view"]?),
-        author_meta: f.has_key?("author_meta") ? truthy?(f["author_meta"]) : true,
-        author_view: truthy?(f["author_view"]?),
-        admin_meta: f.has_key?("admin_meta") ? truthy?(f["admin_meta"]) : true,
-        admin_view: truthy?(f["admin_view"]?),
-        log_ips: truthy?(f["log_ips"]?),
+        cli_only: checkbox(f, "cli_only"),
+        team_meta: f.has_key?("team_meta") ? truthy?(f["team_meta"]) : Superconf.default_team_meta, # absent (API/CLI) => configured default
+        team_view: checkbox(f, "team_view"),
+        author_meta: checkbox(f, "author_meta"),
+        author_view: checkbox(f, "author_view"),
+        author_manage: checkbox(f, "author_manage"),
+        admin_meta: checkbox(f, "admin_meta"),
+        admin_view: checkbox(f, "admin_view"),
+        admin_manage: checkbox(f, "admin_manage"),
+        log_ips: checkbox(f, "log_ips"),
         max_failures: f.has_key?("max_failures") ? (f["max_failures"].presence.try(&.to_i?) || 0) : Superconf.default_max_failures,
         delete_after_hours: f["delete_after_hours"]?.presence.try(&.to_f?), # absent or empty => never deleted
-        delete_on_retrieval: truthy?(f["delete_on_retrieval"]?),
+        delete_on_retrieval: checkbox(f, "delete_on_retrieval"),
       )
       {input, pin}
     end
@@ -556,7 +584,7 @@ module Clpaste
       fields, files = parse_form(req)
       # HTML checkboxes are simply absent when unchecked. PIN/password are plain
       # fields: empty means off (input_from handles that when *_enabled is absent).
-      %w[cli_only team_meta team_view log_ips delete_on_retrieval author_meta author_view admin_meta admin_view].each { |k| fields[k] = fields[k]? || "false" }
+      (FORM_CHECKBOXES.keys << "team_meta").each { |k| fields[k] = fields[k]? || "false" }
       restrict_fields!(req, fields)
       begin
         input, _ = input_from(fields, files)
@@ -565,7 +593,7 @@ module Clpaste
       rescue e : Service::Error
         f = default_form(team_capable?(req.identity))
         fields.each { |k, v| f[k] = v }
-        %w[cli_only team_meta team_view log_ips delete_on_retrieval author_meta author_view admin_meta admin_view].each { |k| f[k] = truthy?(fields[k]?) }
+        (FORM_CHECKBOXES.keys << "team_meta").each { |k| f[k] = truthy?(fields[k]?) }
         # Canonical audience so the right visibility tile is re-checked.
         fields["visibility"]?.try { |v| f["visibility"] = Meta.audience(v) }
         render(req, "index.html", form_vars(f, e.message), 400)
@@ -733,9 +761,10 @@ module Clpaste
     end
 
     # What a role may do on this paste, for the detail Settings table.
-    private def perm_desc(meta_ok : Bool, view_ok : Bool) : String
+    private def perm_desc(meta_ok : Bool, view_ok : Bool, manage_ok : Bool? = nil) : String
       granted = [] of String
-      granted << "view metadata" if meta_ok
+      granted << "manage" if manage_ok
+      granted << "see meta & audit" if meta_ok
       granted << "peek paste" if view_ok
       granted.empty? ? "nothing" : granted.join(", ")
     end
@@ -745,12 +774,28 @@ module Clpaste
       admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless Access.team_meta?(meta, identity)
-        return message(req, "Access denied", "You may not see this paste's metadata.", 403, "danger")
-      end
-      @svc.log(id, admin ? "admin_meta" : "user_meta", meta, req.service_request)
       base = "/pastes/#{id}"
       can_view = !meta.expired? && Access.team_view?(meta, identity)
+      manage = Access.manage?(meta, identity)
+      common = {
+        "title"           => "Paste #{Ids.format(id)}",
+        "id_fmt"          => Ids.format(id),
+        "meta"            => {"expired" => meta.expired?},
+        "admin"           => admin,
+        "can_view"        => can_view,
+        "can_expire"      => !meta.expired? && manage,
+        "can_delete"      => manage,
+        "view_href"       => "#{base}/view",
+        "admin_view_href" => "#{base}/admin-view",
+        "expire_href"     => "#{base}/expire",
+        "delete_href"     => "#{base}/delete",
+      }
+      unless Access.team_meta?(meta, identity)
+        # Friendly page, same layout: no tables, just the actions this
+        # identity does hold on the paste.
+        return render(req, "detail.html", common.merge({"denied" => true}), 403)
+      end
+      @svc.log(id, admin ? "admin_meta" : "user_meta", meta, req.service_request)
       settings = [
         ["Title", meta.title || "—"], ["Access permissions", meta.audience], ["Creator", meta.creator],
         ["Created", fmt_time_s(meta.created_at)], ["Expires", fmt_time_s(meta.expires_at)],
@@ -763,8 +808,8 @@ module Clpaste
         ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],
         ["CLI only", meta.cli_only? ? "yes" : "no"],
         ["Delete", meta.delete_desc || "never"],
-        ["Author can", perm_desc(meta.author_meta?, meta.author_view?)],
-        ["Admins can", perm_desc(meta.admin_meta?, meta.admin_view?)],
+        ["Author can", perm_desc(meta.author_meta?, meta.author_view?, meta.author_manage?)],
+        ["Admins can", perm_desc(meta.admin_meta?, meta.admin_view?, meta.admin_manage?)],
         ["Users can", perm_desc(meta.team_meta?, meta.team_view?)],
         ["IPs logged", meta.log_ips? ? "yes" : "no"],
         ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
@@ -775,21 +820,7 @@ module Clpaste
       log = @repo.log_for(id).map do |e|
         {"at" => fmt_time(e.at), "action" => e.action, "identity" => e.identity || "", "ip" => e.ip || "", "channel" => e.channel, "detail" => e.detail || ""}
       end
-      render(req, "detail.html", {
-        "title"           => "Paste #{Ids.format(id)}",
-        "id_fmt"          => Ids.format(id),
-        "meta"            => {"expired" => meta.expired?},
-        "admin"           => admin,
-        "can_view"        => can_view,
-        "can_expire"      => !meta.expired? && (admin || meta.creator.downcase == identity.email.downcase),
-        "can_delete"      => admin || meta.creator.downcase == identity.email.downcase,
-        "view_href"       => "#{base}/view",
-        "admin_view_href" => "#{base}/admin-view",
-        "expire_href"     => "#{base}/expire",
-        "delete_href"     => "#{base}/delete",
-        "settings"        => settings,
-        "log"             => log,
-      })
+      render(req, "detail.html", common.merge({"denied" => false, "settings" => settings, "log" => log}))
     rescue e : Service::Error
       e.code == "need_login" ? unauthenticated(req) : raise e
     end
@@ -799,7 +830,7 @@ module Clpaste
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
       unless Access.team_view?(meta, identity)
-        return message(req, "Access denied", "You may not view this paste.", 403, "danger")
+        return message(req, "Not possible", "This paste does not grant you access to peek at its content.", 403, "warning")
       end
       password = nil
       if req.request.method == "POST"
@@ -824,11 +855,10 @@ module Clpaste
 
     private def expire(req : Req, raw_id : String)
       identity = require_user(req)
-      admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless admin || meta.creator.downcase == identity.email.downcase
-        return message(req, "Access denied", "Only the creator or an admin may expire a paste.", 403, "danger")
+      unless Access.manage?(meta, identity)
+        return message(req, "Not possible", "This paste does not grant you permission to expire it.", 403, "warning")
       end
       @svc.expire(id, "expired by #{identity.email}", req.service_request)
       redirect(req, "/pastes/#{id}", 303)
@@ -836,11 +866,10 @@ module Clpaste
 
     private def delete_paste(req : Req, raw_id : String)
       identity = require_user(req)
-      admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless admin || meta.creator.downcase == identity.email.downcase
-        return message(req, "Access denied", "Only the creator or an admin may delete a paste.", 403, "danger")
+      unless Access.manage?(meta, identity)
+        return message(req, "Not possible", "This paste does not grant you permission to delete it.", 403, "warning")
       end
       @svc.delete(id)
       redirect(req, "/pastes", 303)

@@ -56,5 +56,13 @@ module Clpaste
       return true if meta.admin_view? && identity.admin?
       meta.team_view?
     end
+
+    # May they manage the paste (expire it, delete it)? Author and admins
+    # only, each governed by the paste's manage flag.
+    def self.manage?(meta : Meta, identity : Identity?) : Bool
+      return false unless identity
+      return true if meta.author_manage? && meta.creator.downcase == identity.email.downcase
+      meta.admin_manage? && identity.admin?
+    end
   end
 end

@@ -6,6 +6,9 @@ WORKDIR /src
 COPY shard.yml shard.lock ./
 RUN shards install --production
 COPY . .
+# The build context has no .git; the git revision is passed in instead.
+ARG GIT_SHA=unknown
+ENV CLPASTE_GIT_SHA=$GIT_SHA
 RUN shards build --production --release --static --no-debug && strip bin/clpaste
 
 FROM alpine:3.20 AS paste

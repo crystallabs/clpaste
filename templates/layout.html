@@ -49,6 +49,6 @@
     function chk(){ b.disabled = i.value.replace(/[^0-9]/g,'').length !== {{ id_digits }}; }
     i.addEventListener('input', chk); chk(); })();
 </script>
-<footer class="container text-secondary small mb-4">{{ site_name }}{% if show_version %} · clpaste {{ version }}{% endif %}</footer>
+<footer class="container text-secondary small mb-4">{{ site_name }}{% if show_version %} · <span title="build {{ git_sha }}">clpaste {{ version }}</span>{% endif %}</footer>
 </body>
 </html>

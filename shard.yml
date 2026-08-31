@@ -1,11 +1,11 @@
 name: clpaste
-version: 0.2.0
+version: 0.3.0
 
 authors:
   - Davor Ocelic <docelic@spinlocksolutions.com>
 
 description: |
-  Encrypted paste service with OIDC-gated creation, fine-grained retrieval
+  Encrypted paste service with OIDC-gated creation, fine-grained viewing
   controls (PIN, password, view/time limits, IP and email allowlists),
   audit logging, admin overview, and a gcloud-style CLI. Single binary.
 
