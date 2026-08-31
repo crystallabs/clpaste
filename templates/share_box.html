@@ -1,0 +1,10 @@
+<div class="card mb-3"><div class="card-body">
+  <div class="mb-2 text-secondary small">Share this link and any other info relevant for the recipient:</div>
+<pre class="mono mb-3">URL:      <a href="{{ url }}">{{ url }}</a>
+{% for kv in details %}{{ kv[0] }}{{ kv[1] }}
+{% endfor %}</pre>
+  <dl class="row mb-0">
+    {% if attachments | length > 0 %}<dt class="col-sm-3">Attachments</dt><dd class="col-sm-9">{% for a in attachments %}<span class="badge text-bg-light border flag">{{ a.name }} · {{ a.size }} B</span> {% endfor %}</dd>{% endif %}
+    <dt class="col-sm-3">Protection</dt><dd class="col-sm-9">{% for fl in flags %}<span class="badge text-bg-secondary flag">{{ fl }}</span> {% endfor %}</dd>
+  </dl>
+</div></div>
