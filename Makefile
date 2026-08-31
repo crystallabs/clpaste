@@ -19,6 +19,7 @@ image:
 	$(DOCKER) build \
 	  --label org.opencontainers.image.version=$(VERSION) \
 	  --label org.opencontainers.image.revision=$(GIT_SHA) \
+	  -f docker/Dockerfile \
 	  -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
 run: image

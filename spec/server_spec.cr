@@ -201,7 +201,9 @@ describe Clpaste::Server do
     alice.login
     r = alice.multipart("/paste", {"text" => "for the team", "visibility" => "private", "pin_enabled" => "", "team_meta" => "on", "team_view" => "on", "password_enabled" => "", "ttl_hours" => "2"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
-    r = alice.multipart("/paste", {"text" => "mine only", "visibility" => "private", "pin_enabled" => "", "ttl_hours" => "2", "max_views" => ""})
+    # The author grants admins metadata + peek (no built-in admin exemption any more).
+    r = alice.multipart("/paste", {"text" => "mine only", "visibility" => "private", "pin_enabled" => "", "ttl_hours" => "2", "max_views" => "",
+                                   "admin_meta" => "on", "admin_view" => "on"})
     id_private = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
 
     idp.email = "bob@example.com"
@@ -244,12 +246,36 @@ describe Clpaste::Server do
     idp.groups = [] of String
   end
 
+  it "deletes a paste on request of the creator or an admin, live or expired" do
+    idp.email = "alice@example.com"
+    alice = Browser.new(base)
+    alice.login
+    r = alice.multipart("/paste", {"text" => "deletable", "visibility" => "public", "pin_enabled" => "",
+                                   "ttl_hours" => "1", "max_views" => ""})
+    id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
+    # another (non-admin) user may not delete it
+    idp.email = "bob@example.com"
+    bob = Browser.new(base)
+    bob.login
+    bob.post("/pastes/#{id}/delete", {} of String => String).status_code.should eq(403)
+    # the creator may; every trace is gone
+    alice.post("/pastes/#{id}/delete", {} of String => String).status_code.should eq(303)
+    alice.get("/pastes/#{id}").status_code.should eq(404)
+    # an expired paste can still be deleted (residual meta keeps the creator)
+    r = alice.multipart("/paste", {"text" => "deletable too", "visibility" => "public", "pin_enabled" => "",
+                                   "ttl_hours" => "1", "max_views" => ""})
+    id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
+    alice.post("/pastes/#{id}/expire", {} of String => String).status_code.should eq(303)
+    alice.post("/pastes/#{id}/delete", {} of String => String).status_code.should eq(303)
+    alice.get("/pastes/#{id}").status_code.should eq(404)
+  end
+
   it "gates Find on admin, hides Home on expired pastes, and honours show_meta/show_version" do
     idp.email = "alice@example.com"
     alice = Browser.new(base)
     alice.login
     r = alice.multipart("/paste", {"text" => "findable", "visibility" => "public", "pin_enabled" => "",
-                                   "ttl_hours" => "1", "max_views" => ""})
+                                   "ttl_hours" => "1", "max_views" => "", "admin_meta" => "on", "admin_view" => "on"})
     id = r.body.match!(/\/p\/([0-9-]+)/)[1].delete('-')
 
     # Non-admins get the navbar View box (to /view); Find and /open are admin-only.
@@ -496,8 +522,7 @@ describe Clpaste::Server do
       det = root.get("/pastes/#{id}")
       det.body.should contain("carol@example.com")
       # Team flags sent by the form were dropped: plain users can't set them.
-      det.body.should contain("Team can see metadata</th><td>no</td>")
-      det.body.should contain("Team can view content</th><td>no</td>")
+      det.body.should contain("Users can</th><td>nothing</td>")
       meta = must(svc.meta_for(must(Clpaste::Ids.normalize(id))))[1]
       meta.team_meta?.should be_false
       meta.team_view?.should be_false

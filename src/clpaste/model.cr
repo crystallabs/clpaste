@@ -22,6 +22,13 @@ module Clpaste
     property? cli_only : Bool = false
     property? team_meta : Bool = false
     property? team_view : Bool = false
+    # Per-role permissions for the detail page (metadata + audit log) and the
+    # uncounted peek. Default on; pastes stored before these existed behave
+    # as before (author and admins allowed).
+    property? author_meta : Bool = true
+    property? author_view : Bool = true
+    property? admin_meta : Bool = true
+    property? admin_view : Bool = true
     property? log_ips : Bool = false
     property max_failures : Int32 = 0
     property text_size : Int64 = 0
@@ -36,16 +43,20 @@ module Clpaste
     # residual
     property expired_at : Time? = nil
     property expiry_reason : String? = nil
+    # Residual-only: whether the paste was PIN/password protected (the
+    # hashes and salts themselves do not survive expiry).
+    property? had_pin : Bool = false
+    property? had_password : Bool = false
 
     def initialize
     end
 
     def pin? : Bool
-      !pin_hash.nil?
+      !pin_hash.nil? || had_pin?
     end
 
     def password? : Bool
-      !password_salt.nil?
+      !password_salt.nil? || had_password?
     end
 
     # Canonical audience: guests | users | admins. Accepts the legacy
@@ -88,8 +99,10 @@ module Clpaste
       (e = expires_at) ? (e - now) : nil
     end
 
-    # What survives expiry: enough to attribute the log, decide who may
-    # see it, and show how the paste was used. No secrets or key material.
+    # What survives expiry: every descriptive setting, so the detail page
+    # reads the same for expired pastes. No secrets or key material — the
+    # PIN hash, password salt and wrapped key are gone (only had_pin /
+    # had_password record that they existed), and so is the body.
     def residual(reason : String, now = Time.utc) : Meta
       r = Meta.new
       r.visibility = visibility
@@ -98,7 +111,20 @@ module Clpaste
       r.created_at = created_at
       r.max_views = max_views
       r.views = views
+      r.emails = emails
+      r.ips = ips
+      r.cli_only = cli_only?
+      r.max_failures = max_failures
+      r.text_size = text_size
+      r.attachments = attachments
+      r.had_pin = pin?
+      r.had_password = password?
       r.team_meta = team_meta?
+      r.team_view = team_view?
+      r.author_meta = author_meta?
+      r.author_view = author_view?
+      r.admin_meta = admin_meta?
+      r.admin_view = admin_view?
       r.log_ips = log_ips?
       r.delete_after_hours = delete_after_hours
       r.delete_on_retrieval = delete_on_retrieval?
@@ -111,7 +137,7 @@ module Clpaste
     # Human description of the deletion rule, nil when the paste is never deleted.
     def delete_desc : String?
       h = delete_after_hours || return
-      anchor = delete_on_retrieval? ? "last retrieval" : "expiry"
+      anchor = delete_on_retrieval? ? "last view" : "expiry"
       h == 0 ? "immediately after #{anchor}" : "#{h.to_s.sub(/\.0$/, "")} h after #{anchor}"
     end
 

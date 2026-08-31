@@ -173,6 +173,7 @@ module Clpaste
       when {"GET", 3, "pastes", String, "view", nil}, {"POST", 3, "pastes", String, "view", nil}             then view_uncounted(req, p[1], admin: false)
       when {"GET", 3, "pastes", String, "admin-view", nil}, {"POST", 3, "pastes", String, "admin-view", nil} then view_uncounted(req, p[1], admin: true)
       when {"POST", 3, "pastes", String, "expire", nil}                                                      then expire(req, p[1])
+      when {"POST", 3, "pastes", String, "delete", nil}                                                      then delete_paste(req, p[1])
         # Legacy/admin entry point: same list; guest hits get the basic-auth challenge.
       when {"GET", 1, "admin", nil, nil, nil}       then (require_user(req); redirect(req, "/pastes"))
       when {"GET", 2, "admin", String, nil, nil}    then (require_user(req); redirect(req, "/pastes/#{p[1]}"))
@@ -338,6 +339,11 @@ module Clpaste
       unless team_capable?(req.identity)
         fields["team_meta"] = "false"
         fields["team_view"] = "false"
+        # The Permissions card is hidden for these users: keep the defaults.
+        fields["author_meta"] = "true"
+        fields["author_view"] = "false"
+        fields["admin_meta"] = "true"
+        fields["admin_view"] = "false"
       end
       return unless unprotected?
       rate_check!(req)
@@ -402,6 +408,7 @@ module Clpaste
         "max_failures" => Superconf.default_max_failures > 0 ? Superconf.default_max_failures.to_s : "",
         "delete_after_hours" => "72", "delete_on_retrieval" => false,
         "cli_only" => false, "team_meta" => Superconf.default_team_meta && team, "team_view" => false, "log_ips" => false,
+        "author_meta" => true, "author_view" => false, "admin_meta" => true, "admin_view" => false,
       }
     end
 
@@ -532,6 +539,10 @@ module Clpaste
         cli_only: truthy?(f["cli_only"]?),
         team_meta: f.has_key?("team_meta") ? truthy?(f["team_meta"]) : Superconf.default_team_meta, # absent (API/CLI) => default; web form always sends it
         team_view: truthy?(f["team_view"]?),
+        author_meta: f.has_key?("author_meta") ? truthy?(f["author_meta"]) : true,
+        author_view: truthy?(f["author_view"]?),
+        admin_meta: f.has_key?("admin_meta") ? truthy?(f["admin_meta"]) : true,
+        admin_view: truthy?(f["admin_view"]?),
         log_ips: truthy?(f["log_ips"]?),
         max_failures: f.has_key?("max_failures") ? (f["max_failures"].presence.try(&.to_i?) || 0) : Superconf.default_max_failures,
         delete_after_hours: f["delete_after_hours"]?.presence.try(&.to_f?), # absent or empty => never deleted
@@ -545,7 +556,7 @@ module Clpaste
       fields, files = parse_form(req)
       # HTML checkboxes are simply absent when unchecked. PIN/password are plain
       # fields: empty means off (input_from handles that when *_enabled is absent).
-      %w[cli_only team_meta team_view log_ips delete_on_retrieval].each { |k| fields[k] = fields[k]? || "false" }
+      %w[cli_only team_meta team_view log_ips delete_on_retrieval author_meta author_view admin_meta admin_view].each { |k| fields[k] = fields[k]? || "false" }
       restrict_fields!(req, fields)
       begin
         input, _ = input_from(fields, files)
@@ -554,7 +565,7 @@ module Clpaste
       rescue e : Service::Error
         f = default_form(team_capable?(req.identity))
         fields.each { |k, v| f[k] = v }
-        %w[cli_only team_meta team_view log_ips delete_on_retrieval].each { |k| f[k] = truthy?(fields[k]?) }
+        %w[cli_only team_meta team_view log_ips delete_on_retrieval author_meta author_view admin_meta admin_view].each { |k| f[k] = truthy?(fields[k]?) }
         # Canonical audience so the right visibility tile is re-checked.
         fields["visibility"]?.try { |v| f["visibility"] = Meta.audience(v) }
         render(req, "index.html", form_vars(f, e.message), 400)
@@ -665,7 +676,7 @@ module Clpaste
         {"name" => file.name, "size" => file.data.size, "content_type" => file.content_type,
          "href" => r.ticket ? "/p/#{r.id}/f/#{i}?t=#{r.ticket}" : ""}
       end
-      status = r.counted ? Service.status_message(r.meta, r.expired_now) : "Peek — not counted as a retrieval, but logged. " + Service.status_message(r.meta, false)
+      status = r.counted ? Service.status_message(r.meta, r.expired_now) : "Peek — not counted as a view, but logged. " + Service.status_message(r.meta, false)
       render(req, "paste.html", {
         "title"          => r.meta.title || "Paste #{Ids.format(r.id)}",
         "id_fmt"         => Ids.format(r.id),
@@ -721,12 +732,20 @@ module Clpaste
       }
     end
 
+    # What a role may do on this paste, for the detail Settings table.
+    private def perm_desc(meta_ok : Bool, view_ok : Bool) : String
+      granted = [] of String
+      granted << "view metadata" if meta_ok
+      granted << "peek paste" if view_ok
+      granted.empty? ? "nothing" : granted.join(", ")
+    end
+
     private def detail(req : Req, raw_id : String)
       identity = require_user(req)
       admin = identity.admin?
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless admin || Access.team_meta?(meta, identity)
+      unless Access.team_meta?(meta, identity)
         return message(req, "Access denied", "You may not see this paste's metadata.", 403, "danger")
       end
       @svc.log(id, admin ? "admin_meta" : "user_meta", meta, req.service_request)
@@ -737,24 +756,21 @@ module Clpaste
         ["Created", fmt_time_s(meta.created_at)], ["Expires", fmt_time_s(meta.expires_at)],
       ]
       settings << ["Views", meta.max_views ? "#{meta.views} of max #{meta.max_views}" : "#{meta.views} (unlimited)"]
-      if meta.expired?
-        settings << ["Expired", "#{fmt_time_s(meta.expired_at)} (#{meta.expiry_reason})"]
-      else
-        settings.concat [
-          ["PIN", meta.pin? ? "yes" : "no"], ["Password", meta.password? ? "yes" : "no"],
-          ["Restricted to emails", meta.emails.empty? ? (meta.public? ? "n/a (guest paste)" : "unrestricted") : meta.emails.join(", ")],
-          ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],
-          ["CLI only", meta.cli_only? ? "yes" : "no"],
-          ["Delete", meta.delete_desc || "never"],
-        ]
-        settings.concat [
-          ["Team can see metadata", meta.team_meta? ? "yes" : "no"], ["Team can view content", meta.team_view? ? "yes" : "no"],
-          ["IPs logged", meta.log_ips? ? "yes" : "no"],
-          ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
-          ["Text size", "#{meta.text_size} B"],
-          ["Attachments", meta.attachments.empty? ? "none" : meta.attachments.map { |a| "#{a.name} (#{a.size} B)" }.join(", ")],
-        ]
-      end
+      settings << ["Expired", "#{fmt_time_s(meta.expired_at)} (#{meta.expiry_reason})"] if meta.expired?
+      settings.concat [
+        ["PIN", meta.pin? ? "yes" : "no"], ["Password", meta.password? ? "yes" : "no"],
+        ["Restricted to emails", meta.emails.empty? ? (meta.public? ? "n/a (guest paste)" : "unrestricted") : meta.emails.join(", ")],
+        ["Allowed IPs", meta.ips.empty? ? "any" : meta.ips.join(", ")],
+        ["CLI only", meta.cli_only? ? "yes" : "no"],
+        ["Delete", meta.delete_desc || "never"],
+        ["Author can", perm_desc(meta.author_meta?, meta.author_view?)],
+        ["Admins can", perm_desc(meta.admin_meta?, meta.admin_view?)],
+        ["Users can", perm_desc(meta.team_meta?, meta.team_view?)],
+        ["IPs logged", meta.log_ips? ? "yes" : "no"],
+        ["Max failed attempts", meta.max_failures > 0 ? meta.max_failures.to_s : "unlimited"],
+        ["Text size", "#{meta.text_size} B"],
+        ["Attachments", meta.attachments.empty? ? "none" : meta.attachments.map { |a| "#{a.name} (#{a.size} B)" }.join(", ")],
+      ]
       meta.delete_at.try { |due| settings << ["Deletes", fmt_time_s(due)] }
       log = @repo.log_for(id).map do |e|
         {"at" => fmt_time(e.at), "action" => e.action, "identity" => e.identity || "", "ip" => e.ip || "", "channel" => e.channel, "detail" => e.detail || ""}
@@ -766,9 +782,11 @@ module Clpaste
         "admin"           => admin,
         "can_view"        => can_view,
         "can_expire"      => !meta.expired? && (admin || meta.creator.downcase == identity.email.downcase),
+        "can_delete"      => admin || meta.creator.downcase == identity.email.downcase,
         "view_href"       => "#{base}/view",
         "admin_view_href" => "#{base}/admin-view",
         "expire_href"     => "#{base}/expire",
+        "delete_href"     => "#{base}/delete",
         "settings"        => settings,
         "log"             => log,
       })
@@ -780,7 +798,7 @@ module Clpaste
       identity = admin ? require_admin(req) : require_user(req)
       id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
       _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
-      unless admin || Access.team_view?(meta, identity)
+      unless Access.team_view?(meta, identity)
         return message(req, "Access denied", "You may not view this paste.", 403, "danger")
       end
       password = nil
@@ -814,6 +832,18 @@ module Clpaste
       end
       @svc.expire(id, "expired by #{identity.email}", req.service_request)
       redirect(req, "/pastes/#{id}", 303)
+    end
+
+    private def delete_paste(req : Req, raw_id : String)
+      identity = require_user(req)
+      admin = identity.admin?
+      id = Ids.normalize(raw_id) || return message(req, "Invalid ID", "Not a valid paste ID.", 400)
+      _, meta = @svc.meta_for(id) || return message(req, "No such paste", "", 404)
+      unless admin || meta.creator.downcase == identity.email.downcase
+        return message(req, "Access denied", "Only the creator or an admin may delete a paste.", 403, "danger")
+      end
+      @svc.delete(id)
+      redirect(req, "/pastes", 303)
     end
 
     # ---- CLI login handshake ------------------------------------------------

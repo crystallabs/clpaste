@@ -129,7 +129,7 @@ describe Clpaste::Service do
 
     # 0 h after last retrieval: gone the moment it is retrieved.
     a = svc.create(input("burn", visibility: "public", delete_after_hours: 0.0, delete_on_retrieval: true), alice, sreq(alice))
-    a.meta.delete_desc.should eq("immediately after last retrieval")
+    a.meta.delete_desc.should eq("immediately after last view")
     svc.retrieve(a.id, sreq(nil), false).body.text.should eq("burn")
     svc.meta_for(a.id).should be_nil
     svc.repo.log_for(a.id).should be_empty

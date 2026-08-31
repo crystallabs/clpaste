@@ -22,7 +22,7 @@
   <div class="col-lg-5">
     {% if unprotected %}
     <input type="hidden" name="visibility" value="guests">
-    <p class="text-secondary form-text-sm">Pastes on this server are guest pastes: anyone with the ID can retrieve them, subject to the protection you set below.</p>
+    <p class="text-secondary form-text-sm">Pastes on this server are guest pastes: anyone with the ID can view them, subject to the protection you set below.</p>
     {% else %}
     <div class="card mb-3"><div class="card-body">
       <h2 class="h6">Visibility</h2>
@@ -78,12 +78,13 @@
       </div>
       <div class="row g-2 mb-2">
         <div class="col-6">
-          <label class="form-label form-text-sm mb-0" for="max_views">Max retrievals <span class="text-secondary">(empty = unlimited)</span></label>
+          <label class="form-label form-text-sm mb-0" for="max_views">Max views <span class="text-secondary">(empty = unlimited)</span></label>
           <div class="input-group input-group-sm">
             <input class="form-control" name="max_views" id="max_views" type="number" min="1" value="{{ f.max_views }}" data-default-private="{{ max_views_default.private }}" data-default-public="{{ max_views_default.public }}">
             <button class="btn btn-outline-secondary px-2" type="button" data-set="max_views" data-value="1">1</button>
             <button class="btn btn-outline-secondary px-2" type="button" data-set="max_views" data-value="5">5</button>
             <button class="btn btn-outline-secondary px-2" type="button" data-set="max_views" data-value="10">10</button>
+            <button class="btn btn-outline-secondary px-2" type="button" data-set="max_views" data-value="50">50</button>
             <button class="btn btn-outline-secondary px-2" type="button" title="Unlimited" data-set="max_views" data-value="">&#10005;</button>
           </div>
         </div>
@@ -101,26 +102,27 @@
       </div>
       <div class="row g-2 mb-2">
         <div class="col-6">
-          <div class="form-check form-text-sm mb-0 mt-4">
+          <div class="form-check form-text-sm mb-0">
             <input class="form-check-input" type="checkbox" name="delete_on_retrieval" id="delete_on_retrieval" {% if f.delete_on_retrieval %}checked{% endif %}>
-            <label class="form-check-label" for="delete_on_retrieval" title="Checked: every successful retrieval restarts the deletion timer (0 h deletes the paste the moment it is retrieved). Unchecked: the timer starts when the paste expires.">Delete after last retrieval</label>
+            <label class="form-check-label" for="delete_on_retrieval" title="Checked: every counted view restarts the deletion timer (0 h deletes the paste the moment it is viewed). Unchecked: the timer starts when the paste expires.">Delete after last view</label>
+            <div class="text-secondary">(unchecked = delete after expiry)</div>
           </div>
         </div>
         <div class="col-6">
           <label class="form-label form-text-sm mb-0" for="delete_after_hours">Delete after (h, empty = never)</label>
           <div class="input-group input-group-sm">
             <input class="form-control" name="delete_after_hours" id="delete_after_hours" type="number" min="0" step="0.5" value="{{ f.delete_after_hours }}">
-            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="12">12h</button>
+            <button class="btn btn-outline-secondary px-1" type="button" title="Delete right at expiry / last view" data-set="delete_after_hours" data-value="0">0</button>
             <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="24">1d</button>
             <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="72">3d</button>
-            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="240">10d</button>
+            <button class="btn btn-outline-secondary px-1" type="button" data-set="delete_after_hours" data-value="120">5d</button>
             <button class="btn btn-outline-secondary px-1" type="button" title="Never deleted" data-set="delete_after_hours" data-value="">&#10005;</button>
           </div>
         </div>
       </div>
       <div class="row g-2 mb-2">
         <div class="col-6">
-          <label class="form-label form-text-sm mb-0" for="max_failures">Max retrieval failures <span class="text-secondary">(empty = no limit)</span></label>
+          <label class="form-label form-text-sm mb-0" for="max_failures">Max view failures <span class="text-secondary">(empty = no limit)</span></label>
           <input class="form-control form-control-sm" name="max_failures" id="max_failures" type="number" min="1" value="{{ f.max_failures }}">
         </div>
         <div class="col-6">
@@ -132,7 +134,7 @@
         <div class="col-6">
           <div class="form-check form-text-sm mb-0">
             <input class="form-check-input" type="checkbox" name="cli_only" id="cli_only" {% if f.cli_only %}checked{% endif %}>
-            <label class="form-check-label" for="cli_only">Retrievable only via CLI</label>
+            <label class="form-check-label" for="cli_only">Viewable only via CLI</label>
           </div>
         </div>
         <div class="col-6">
@@ -146,14 +148,39 @@
 
     {% if team or (user and user.admin) %}
     <div class="card mb-3"><div class="card-body">
-      <h2 class="h6">Team</h2>
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" name="team_meta" id="team_meta" {% if f.team_meta %}checked{% endif %}>
-        <label class="form-check-label" for="team_meta">Can see metadata &amp; audit log</label>
+      <h2 class="h6">Permissions <span class="text-secondary form-text-sm fw-normal">— peek = uncounted but logged view</span></h2>
+      <div class="row g-1 form-text-sm">
+        <div class="col-3">Author can</div>
+        <div class="col-5"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="author_meta" id="author_meta" {% if f.author_meta %}checked{% endif %}>
+          <label class="form-check-label" for="author_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+        </div></div>
+        <div class="col-4"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="author_view" id="author_view" {% if f.author_view %}checked{% endif %}>
+          <label class="form-check-label" for="author_view">peek paste</label>
+        </div></div>
       </div>
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
-        <label class="form-check-label" for="team_view">Can view the paste itself <span class="text-secondary form-text-sm">(not counted, but logged)</span></label>
+      <div class="row g-1 form-text-sm">
+        <div class="col-3">Admins can</div>
+        <div class="col-5"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="admin_meta" id="admin_meta" {% if f.admin_meta %}checked{% endif %}>
+          <label class="form-check-label" for="admin_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+        </div></div>
+        <div class="col-4"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="admin_view" id="admin_view" {% if f.admin_view %}checked{% endif %}>
+          <label class="form-check-label" for="admin_view">peek paste</label>
+        </div></div>
+      </div>
+      <div class="row g-1 form-text-sm">
+        <div class="col-3">Users can</div>
+        <div class="col-5"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="team_meta" id="team_meta" {% if f.team_meta %}checked{% endif %}>
+          <label class="form-check-label" for="team_meta" title="Metadata and audit log on the paste detail page">view metadata</label>
+        </div></div>
+        <div class="col-4"><div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="team_view" id="team_view" {% if f.team_view %}checked{% endif %}>
+          <label class="form-check-label" for="team_view">peek paste</label>
+        </div></div>
       </div>
     </div></div>
     {% endif %}

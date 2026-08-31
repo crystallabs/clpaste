@@ -33,7 +33,7 @@ module Clpaste
           logout                     Revoke the stored token
           whoami                     Show who you are logged in as
           put [FILE...] [options]    Create a paste; text is read from stdin unless --text is given
-          get ID [options]           Retrieve a paste; prints text, saves attachments
+          get ID [options]           View a paste; prints text, saves attachments
 
         Run `clpaste <command> --help` for command options.
         TXT
@@ -258,9 +258,9 @@ module Clpaste
         parser.on("-t", "--text TEXT", "Paste text (instead of stdin)") { |v| fields["text"] = v; text_given = true }
         parser.on("--no-text", "Attach files only, don't read stdin") { fields["text"] = ""; text_given = true }
         parser.on("--title T", "Title") { |v| fields["title"] = v }
-        parser.on("--guests", "Guest paste: no login needed to retrieve (default)") { fields["visibility"] = "guests" }
-        parser.on("--users", "Retrieval requires a signed-in user") { fields["visibility"] = "users" }
-        parser.on("--admins", "Retrieval requires an admin") { fields["visibility"] = "admins" }
+        parser.on("--guests", "Guest paste: no login needed to view (default)") { fields["visibility"] = "guests" }
+        parser.on("--users", "Viewing requires a signed-in user") { fields["visibility"] = "users" }
+        parser.on("--admins", "Viewing requires an admin") { fields["visibility"] = "admins" }
         parser.on("--public", "Alias for --guests") { fields["visibility"] = "guests" }
         parser.on("--private", "Alias for --users") { fields["visibility"] = "users" }
         parser.on("--emails LIST", "Users/Admins only: restrict to these emails, comma-separated (empty = unrestricted)") { |v| fields["emails"] = v }
@@ -268,16 +268,20 @@ module Clpaste
         parser.on("--pin PIN", "PIN (4-8 digits; default: random 4-digit PIN)") { |v| fields["pin"] = v; fields["pin_enabled"] = "true" }
         parser.on("--no-pin", "Disable PIN") { fields["pin_enabled"] = "false" }
         parser.on("--password PW", "Password-protect (also hides content from admins)") { |v| fields["password"] = v; fields["password_enabled"] = "true" }
-        parser.on("--views N", "Max retrievals (0 = unlimited; server default: unlimited for private, 1 for public)") { |v| fields["max_views"] = v }
+        parser.on("--views N", "Max views (0 = unlimited; server default: unlimited for private, 1 for public)") { |v| fields["max_views"] = v }
         parser.on("--ttl HOURS", "Expiry in hours (0 = never; default from server)") { |v| fields["ttl_hours"] = v }
-        parser.on("--max-failures N", "Max retrieval (PIN/password) failures before expiry (0 = no limit)") { |v| fields["max_failures"] = v }
+        parser.on("--max-failures N", "Max view (PIN/password) failures before expiry (0 = no limit)") { |v| fields["max_failures"] = v }
         parser.on("--delete-after HOURS", "Delete the paste record (incl. audit log) this many hours after expiry (0 = at once; default: never)") { |v| fields["delete_after_hours"] = v }
-        parser.on("--delete-on-retrieval", "Anchor deletion to retrievals instead: each successful retrieval restarts the timer (0 = delete when retrieved)") { fields["delete_on_retrieval"] = "true" }
-        parser.on("--cli-only", "Retrievable only via CLI") { fields["cli_only"] = "true" }
+        parser.on("--delete-on-retrieval", "Anchor deletion to views instead: each counted view restarts the timer (0 = delete when viewed)") { fields["delete_on_retrieval"] = "true" }
+        parser.on("--cli-only", "Viewable only via CLI") { fields["cli_only"] = "true" }
         parser.on("--team-meta", "Users may see metadata & audit log (server default: on)") { fields["team_meta"] = "true" }
         parser.on("--no-team-meta", "Hide metadata & audit log from other users") { fields["team_meta"] = "false" }
-        parser.on("--team-view", "Users may view the content (uncounted, logged)") { fields["team_view"] = "true" }
-        parser.on("--log-ips", "Record retriever IPs in the audit log") { fields["log_ips"] = "true" }
+        parser.on("--team-view", "Users may peek the content (uncounted, logged)") { fields["team_view"] = "true" }
+        parser.on("--no-author-meta", "Author may not see metadata & audit log (default: may)") { fields["author_meta"] = "false" }
+        parser.on("--author-view", "Author may peek the content (default: not)") { fields["author_view"] = "true" }
+        parser.on("--no-admin-meta", "Admins may not see metadata & audit log (default: may)") { fields["admin_meta"] = "false" }
+        parser.on("--admin-view", "Admins may peek the content (default: not)") { fields["admin_view"] = "true" }
+        parser.on("--log-ips", "Record viewer IPs in the audit log") { fields["log_ips"] = "true" }
         parser.on("--json", "Machine-readable output") { as_json = true }
         parser.on("-h", "--help", "Help") { puts parser; exit }
         parser.unknown_args { |rest, _| files = rest }

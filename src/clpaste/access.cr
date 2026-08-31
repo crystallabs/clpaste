@@ -37,19 +37,23 @@ module Clpaste
       Result::Ok
     end
 
-    # Team: any signed-in user (admin or not). May they see the metadata/log?
+    # May they see the metadata/log? Purely per-role paste permissions —
+    # no built-in author or admin exemption: any role the identity holds
+    # (author, admin, signed-in user) whose flag is on grants access.
     def self.team_meta?(meta : Meta, identity : Identity?) : Bool
       return false unless identity
-      return true if identity.admin?
-      return true if meta.creator.downcase == identity.email.downcase
+      return true if meta.author_meta? && meta.creator.downcase == identity.email.downcase
+      return true if meta.admin_meta? && identity.admin?
       meta.team_meta?
     end
 
-    # May they see the content via the team route (not counted)?
+    # May they see the content via the uncounted peek route? Same role
+    # rules as team_meta?.
     def self.team_view?(meta : Meta, identity : Identity?) : Bool
       return false unless identity
       return false if meta.expired?
-      return true if meta.creator.downcase == identity.email.downcase
+      return true if meta.author_view? && meta.creator.downcase == identity.email.downcase
+      return true if meta.admin_view? && identity.admin?
       meta.team_view?
     end
   end

@@ -39,6 +39,10 @@ module Clpaste
       team_view : Bool,
       log_ips : Bool,
       max_failures : Int32,
+      author_meta : Bool = true,
+      author_view : Bool = false,
+      admin_meta : Bool = true,
+      admin_view : Bool = false,
       delete_after_hours : Float64? = nil,
       delete_on_retrieval : Bool = false
 
@@ -148,6 +152,10 @@ module Clpaste
       meta.cli_only = input.cli_only
       meta.team_meta = input.team_meta
       meta.team_view = input.team_view
+      meta.author_meta = input.author_meta
+      meta.author_view = input.author_view
+      meta.admin_meta = input.admin_meta
+      meta.admin_view = input.admin_view
       meta.log_ips = input.log_ips
       meta.max_failures = {input.max_failures, 0}.max
       meta.delete_after_hours = input.delete_after_hours.try { |hours| hours >= 0 ? hours : nil }
@@ -205,7 +213,7 @@ module Clpaste
         in .need_login?    then deny(id, meta, req, "need_login", "Login required")
         in .not_allowed?   then deny(id, meta, req, "not_allowed", "Your account is not allowed to view this paste")
         in .ip_blocked?    then deny(id, meta, req, "ip_blocked", "Not available from your network")
-        in .cli_only?      then deny(id, meta, req, "cli_only", "This paste can only be retrieved with the CLI")
+        in .cli_only?      then deny(id, meta, req, "cli_only", "This paste can only be viewed with the CLI")
         in .need_pin?      then prompt(id, meta, req, "need_pin", "PIN required")
         in .need_password? then prompt(id, meta, req, "need_password", "Password required")
         end
@@ -344,6 +352,16 @@ module Clpaste
       end
     end
 
+    # Manual deletion: removes every trace (paste, residual meta, audit log)
+    # regardless of state or armed deadline.
+    def delete(id : String)
+      @lock.synchronize do
+        @repo.get_paste(id) || raise Error.new("not_found", "No such paste")
+        @repo.delete_paste(id)
+      end
+      Log.info { "paste #{id} deleted (manual)" }
+    end
+
     # Hourly job.
     def sweep
       @lock.synchronize do
@@ -382,7 +400,7 @@ module Clpaste
 
     # Human message for the retriever.
     def self.status_message(meta : Meta, expired_now : Bool) : String
-      return "This paste has now been viewed and has expired (view limit reached). It cannot be retrieved again." if expired_now
+      return "This paste has now been viewed and has expired (view limit reached). It cannot be viewed again." if expired_now
       parts = [] of String
       if m = meta.max_views
         r = meta.remaining_views || 0
