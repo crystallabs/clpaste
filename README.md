@@ -102,6 +102,12 @@ Docker: `cp .env.example .env`, fill it in, `docker compose up -d`. The image
 is a static Alpine build; data lives in the `/data` volume (SQLite) or in
 PostgreSQL.
 
+Prebuilt binaries for Linux (static) and macOS, both x86_64 and aarch64, are
+attached to every [release](https://github.com/crystallabs/clpaste/releases)
+as `clpaste-<version>-<linux|macos>-<arch>.tar.gz`. The macOS binaries are not
+signed; if macOS refuses to run a downloaded one, clear the quarantine flag
+with `xattr -d com.apple.quarantine clpaste`.
+
 ### PostgreSQL
 
 Clpaste reads the standard libpq variables plus the usual `POSTGRES_*`
@@ -304,7 +310,7 @@ AGPL-3.0 — see [LICENSE](LICENSE).
 ## Reference: `clpaste --help`
 
 ```
-clpaste 0.3.0 — encrypted paste service
+clpaste 1.0.0 — encrypted paste service
 
 Usage: clpaste <command> [options]
 

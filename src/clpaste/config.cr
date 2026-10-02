@@ -68,7 +68,7 @@ module Superconf
 end
 
 module Clpaste
-  VERSION = "0.3.0"
+  VERSION = "1.0.0"
   # Compile-time git revision: CLPASTE_GIT_SHA when set (Docker builds pass
   # it, since the image has no .git), else asked from git directly.
   GIT_SHA = {{ env("CLPASTE_GIT_SHA") || `git rev-parse --short HEAD 2>/dev/null || echo unknown`.strip.stringify }}
