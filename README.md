@@ -310,7 +310,7 @@ AGPL-3.0 — see [LICENSE](LICENSE).
 ## Reference: `clpaste --help`
 
 ```
-clpaste 1.0.0 — encrypted paste service
+clpaste 1.0.1 — encrypted paste service
 
 Usage: clpaste <command> [options]
 
